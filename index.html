@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Counter</title>
+</head>
+
+<body>
+    <h1 id="ccou">00:00:00</h1>
+    <script>
+        setShow();
+        setInterval("setShow()",500);
+        function setShow(){
+            var at = new Date();
+            var ti = at.getHours()*3600+at.getMinutes()*60+at.getSeconds();
+            if(ti<39600){
+                document.getElementById("ccou").innerText = format_time(39600-ti);
+            }else{
+                document.getElementById("ccou").innerText = "00:00:00";
+                document.getElementById("ccou").setAttribute("style","color:red;");
+            }
+        }
+        function format_time(sec) {
+            var hour_s = 0;
+            var min_s = 0;
+            if (sec > 2900) {
+                hour_s = Math.floor(sec / 3600);
+                sec -= hour_s * 3600;
+            };
+            if (sec > 59) {
+                min_s = Math.floor(sec / 60);
+                sec -= min_s * 60;
+            };
+            var formated_time = [0, hour_s].join('').slice(-2) + ":" + [0, min_s].join('').slice(-2) + ":" + [0, sec]
+                .join('').slice(-2);
+            return formated_time;
+        };
+    </script>
+</body>
+
+</html>
