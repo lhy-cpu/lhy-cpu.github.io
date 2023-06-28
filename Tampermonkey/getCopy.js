@@ -9,6 +9,7 @@
 // @grant        none
 // @run-at       document-start
 // @updateurl    https://lhy-cpu.github.io/Tampermonkey/getCopy.js
+// @homepage     https://lhy-cpu.github.io/Tampermonkey/index.html
 // ==/UserScript==
 
 
