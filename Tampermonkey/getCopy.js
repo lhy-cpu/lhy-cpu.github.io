@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         getCopyEasyScript
 // @namespace    https://lhy-cpu.github.io
-// @version      0.5
+// @version      0.6
 // @description  Make it easy to copy something and remove annoying login windows.
 // @author       lhy-cpu
 // @match        *://*/*
