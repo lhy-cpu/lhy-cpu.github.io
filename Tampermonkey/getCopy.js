@@ -41,5 +41,6 @@
         };
     });
     setInterval('var eee = document.querySelectorAll("span");for (var i = 0; i < eee.length; i++) {if (eee[i].innerText == "×") {eee[i].click();}};', 10);
-    setInterval('var aaa = document.querySelector(".Modal-closeButton");if(aaa!=null){aaa.click()};', 10);
+    setInterval('var classArr = [".ZDI.ZDI--Xmark16.css-1rgloxd",".Modal-closeButton"];for (var i = 0; i < classArr.length; i++) {if(document.querySelector(classArr[i])!=null){document.querySelector(classArr[i]).click()};};', 10);
+    
 })();
