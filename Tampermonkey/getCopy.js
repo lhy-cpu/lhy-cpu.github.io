@@ -8,7 +8,8 @@
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        none
 // @run-at       document-start
-// @updateurl    https://lhy-cpu.github.io/Tampermonkey/getCopy.js
+// @updateURL    https://lhy-cpu.github.io/Tampermonkey/getCopy.js
+// @downloadURL  https://lhy-cpu.github.io/Tampermonkey/getCopy.js
 // @homepage     https://lhy-cpu.github.io/Tampermonkey/index.html
 // ==/UserScript==
 
@@ -41,6 +42,6 @@
         };
     });
     setInterval('var eee = document.querySelectorAll("span");for (var i = 0; i < eee.length; i++) {if (eee[i].innerText == "×") {eee[i].click();}};', 10);
-    setInterval('var classArr = [".ZDI.ZDI--Xmark16.css-1rgloxd",".Modal-closeButton"];for (var i = 0; i < classArr.length; i++) {if(document.querySelector(classArr[i])!=null){document.querySelector(classArr[i]).click()};};', 10);
+    setInterval('var classArr = [".ZDI.ZDI--Xmark16.css-1rgloxd",".Modal-closeButton"];for (var i = 0; i < classArr.length; i++) {var aaa = document.querySelector(classArr[i]);if(aaa!=null){aaa.click()};};', 10);
     
 })();
