@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         getCopyEasyScript
 // @namespace    https://lhy-cpu.github.io
-// @version      1.2
+// @version      1.3
 // @description  Make it easy to copy something and remove annoying login windows.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -41,8 +41,7 @@
             doc[acou].style = tmp;
         };
     });
-    setInterval('', 10);
     setInterval('var classArr = [".Modal-closeButton"];for (var i = 0; i < classArr.length; i++) {var aaa = document.querySelector(classArr[i]);if(aaa!=null){aaa.click()};};' +
-     'var eleArr = [".css-1ynzxqw"];for(var i = 0; i < eleArr.length; i++){var tt = document.querySelector(eleArr[i]);tt.innerHTML = "";};' +
+     'var eleArr = [".css-1ynzxqw"];for(var i = 0; i < eleArr.length; i++){var tt = document.querySelector(eleArr[i]);if(tt!=null){tt.innerHTML = "";}};' +
      'var eee = document.querySelectorAll("span");for (var i = 0; i < eee.length; i++) {if (eee[i].innerText == "×" && eee[i].parentNode.className=="passport-login-box") {eee[i].click();}};', 10);
 })();
