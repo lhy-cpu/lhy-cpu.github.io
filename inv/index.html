@@ -10,6 +10,7 @@
 </head>
 
 <body>
+    <img id="load" src="./img/loading.gif">
     <canvas id="can" style="display: none;"></canvas>
     <div>
         <img id="showb" src="" class="imgbac" style="display: none;">
@@ -33,6 +34,7 @@
             sb.setAttribute("style", "");
             coverImg.setAttribute("style", "");
             bac.setAttribute("style", "");
+            document.getElementById("load").setAttribute("style", "display: none");
             layerInterface();
         };
         window.onresize = function () {
