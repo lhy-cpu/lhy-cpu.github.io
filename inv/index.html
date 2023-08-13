@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+    <meta charset="utf-8">
+    <!-- <meta name="viewport" content="width=device-width, initial-scale=1"> -->
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="icon" type="image/x.icon" href="./img/logo.ico">
+    <title>邀请函</title>
+    <link rel="stylesheet" href="./css/main.css">
+    <!-- <link rel="stylesheet" type="text/css" href="./css/semantic.css">
+    <script src="./js/jquery-3.7.0.min.js"></script>
+    <script src="./js/semanticui/transition.js"></script> -->
+</head>
+
+<body>
+    <!-- <h1>A Invatation</h1> -->
+    <!-- <div class="ui middle aligned center aligned grid">
+        <div class="column">
+            <div class="ui huge header" style="color: antiquewhite; margin-top: 50pt;font-size: 9em;">邀请函</div>
+        </div>
+
+    </div> -->
+    <canvas id="can" style="display: none;"></canvas>
+    <div>
+        <img id="showb" src="" class="imgbac">
+    </div>
+    <div id="cs">
+        <img id="cor" src="./img/cover1.png" class="imgcover">
+    </div>
+    <div id="zwd">
+        <img id="zw" src="./img/zw3.png" class="imgzw" style="display: none;">
+        <!-- <img id="zw" src="./img/zw.png" class="imgzw"> -->
+    </div>
+
+    <img id="bac" src="./img/background.jpg" style="display: none;">
+
+
+    <script>
+        var canvas = document.getElementById("can");
+        var sb = document.getElementById("showb");
+        var coverImg = document.getElementById("cor");
+        var coverDiv = document.getElementById("cs");
+        var zwd = document.getElementById("zwd");
+        var zw = document.getElementById("zw");
+
+        var pen = canvas.getContext("2d");
+
+        window.onload = function () {
+
+            layerInterface();
+        };
+
+        window.onresize = function () {
+            // canvas.setAttribute("width", window.innerWidth + "px");
+            // canvas.setAttribute("height", window.innerHeight + "px");
+            // sb.setAttribute("width", window.innerWidth + "px");
+            // sb.setAttribute("height", window.innerHeight + "px");
+            layerInterface();
+        };
+
+        function layerInterface() {
+            canvas.setAttribute("width", window.innerWidth + 50 + "px");
+            canvas.setAttribute("height", window.innerHeight + 50 + "px");
+            sb.setAttribute("width", window.innerWidth + 50 + "px");
+            sb.setAttribute("height", window.innerHeight + 50 + "px");
+            var imageObj = document.getElementById("bac");
+            var pw = imageObj.width;
+            var ph = imageObj.height;
+            var cw = canvas.width;
+            var ch = canvas.height;
+            if (imageObj.width * canvas.height / imageObj.height > canvas.width) {
+                pen.drawImage(imageObj, (pw - cw * ph / ch) / 2, 0, cw * ph / ch, ph, 0, 0, cw, ch);
+            } else {
+                pen.drawImage(imageObj, 0, (ph - ch * pw / cw) / 2, pw, ch * pw / cw, 0, 0, cw, ch);
+            };
+            // document.body.setAttribute("style","background:"+canvas.toDataURL());
+            sb.src = canvas.toDataURL();
+
+
+            if (ch > cw) {
+                if (coverDiv.style.display != "none") {
+                    coverImg.setAttribute("width", cw * 0.9 + "px");
+                    coverImg.setAttribute("height", cw * 0.9 + "px");
+                    coverDiv.setAttribute("style", "margin-top:" + ((ch - cw * 0.9) / 2 - ch) + "px;margin-left:" + (
+                        cw *
+                        0.05 - 35) + "px;");
+                }
+
+                zw.setAttribute("width", cw * 0.9 + "px");
+                zw.setAttribute("height", cw * 0.9 + "px");
+                zwd.setAttribute("style", "margin-top:" + ((ch - cw * 0.9) / 2 - ch) + "px;margin-left:" + (cw *
+                    0.05 - 35) + "px;");
+
+                // pen.drawImage(coverImg,(ch*0.15-ch),,cw*0.9,cw*0.9);
+            } else {
+                if (coverDiv.style.display != "none") {
+                    coverImg.setAttribute("width", ch * 0.9 + "px");
+                    coverImg.setAttribute("height", ch * 0.9 + "px");
+                    coverDiv.setAttribute("style", "margin-top:" + ((ch - ch * 0.9) / 2 - ch) + "px;margin-left:" + ((
+                        cw -
+                        ch * 0.9) / 2 - 35) + "px;");
+                }
+                zw.setAttribute("width", ch * 0.9 + "px");
+                zw.setAttribute("height", ch * 0.9 + "px");
+                zwd.setAttribute("style", "margin-top:" + ((ch - ch * 0.9) / 2 - ch) + "px;margin-left:" + ((cw -
+                    ch * 0.9) / 2 - 35) + "px;");
+                // pen.drawImage(coverImg,(cw-ch*0.9)/2,ch*0.15,ch*0.9,ch*0.9);
+            };
+            // canvas.setAttribute("style","");
+        };
+
+        coverImg.addEventListener("click", () => {
+            coverImg.setAttribute("class", "quit");
+            setTimeout(() => {
+                coverDiv.setAttribute("style", "display:none;");
+                zw.setAttribute("style",
+                    "animation-play-state:running;-webkit-animation-play-state:running;");
+            }, 500);
+
+        });
+
+        function drawMain() {
+
+        };
+    </script>
+
+</body>
+
+</html>
