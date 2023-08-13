@@ -24,17 +24,17 @@
     </div> -->
     <canvas id="can" style="display: none;"></canvas>
     <div>
-        <img id="showb" src="" class="imgbac">
+        <img id="showb" src="" class="imgbac" style="display: none;">
     </div>
     <div id="cs">
-        <img id="cor" src="./img/cover1.png" class="imgcover">
+        <img id="cor" src="./img/cover1.png" class="imgcover" style="display: none;">
     </div>
     <div id="zwd">
         <img id="zw" src="./img/zw3.png" class="imgzw" style="display: none;">
         <!-- <img id="zw" src="./img/zw.png" class="imgzw"> -->
     </div>
 
-    <img id="bac" src="./img/bac.jpg" style="display: none;">
+    <img id="bac" src="./img/background.jpg" style="display: none;">
 
 
     <script>
@@ -48,7 +48,9 @@
         var pen = canvas.getContext("2d");
 
         window.onload = function () {
-
+            sb.setAttribute("style", "");
+            coverImg.setAttribute("style", "");
+            bac.setAttribute("style", "");
             layerInterface();
         };
 
