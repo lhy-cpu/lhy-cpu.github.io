@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         getCopyEasyScript
 // @namespace    https://lhy-cpu.github.io
-// @version      1.5
+// @version      1.6
 // @description  Make it easy to copy something and remove annoying login windows.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -41,8 +41,10 @@
             doc[acou].style = tmp;
         };
     });
+
     setInterval('var classArr = [".toolbar-adver-btn"];for (var i = 0; i < classArr.length; i++) {var aaa = document.querySelector(classArr[i]);if(aaa!=null){aaa.click()};};' +
-     'var eleArr = [".css-1ynzxqw"];for(var i = 0; i < eleArr.length; i++){var tt = document.querySelector(eleArr[i]);if(tt!=null){tt.innerHTML = "";}};' +
-     'var apc = document.querySelectorAll(".Button.Modal-closeButton.Button--plain");for(var i=0; i<apc.length; i++) {if (apc[i] != null && apc[i].parentNode.className == "Modal Modal--default signFlowModal") {apc[i].click();};}'+
-     'var eee = document.querySelectorAll("span");for (var i = 0; i < eee.length; i++) {if (eee[i].innerText == "×" && eee[i].parentNode.className=="passport-login-box") {eee[i].click();}};', 10);
+        'var eleArr = [".css-1ynzxqw"];for(var i = 0; i < eleArr.length; i++){var tt = document.querySelector(eleArr[i]);if(tt!=null){tt.innerHTML = "";}};' +
+        'var apc = document.querySelectorAll(".Button.Modal-closeButton.Button--plain");for(var i=0; i<apc.length; i++) {if (apc[i] != null && apc[i].parentNode.className == "Modal Modal--default signFlowModal") {apc[i].click();};}' +
+        'var eee = document.querySelectorAll("span");for (var i = 0; i < eee.length; i++) {if (eee[i].innerText == "×" && eee[i].parentNode.className=="passport-login-box") {eee[i].click();}};' +
+        'if(document.getElementById("article_content")!=null){document.getElementById("article_content").setAttribute("style","overflow: hidden;");};if(document.querySelector(".hide-article-box.hide-article-pos.text-center")!=null){document.querySelector(".hide-article-box.hide-article-pos.text-center").setAttribute("style","display:none;");};', 30);
 })();
