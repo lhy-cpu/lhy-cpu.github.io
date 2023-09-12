@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8">
+        <title>学习网站集合</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="icon" href="./img/favicon.ico" type="image/x.icon">
+        <link rel="stylesheet" href="./css/semantic.css" type="text/css"/>
+    </head>
+    <body>
+        <div class="head_title">
+            <h1 class="ui center aligned header" style="line-height:2.285714em">学习网站集合</h1>
+        </div>
+        <div class="ui link cards">
+            <div class="card" id="card1" onclick>
+              <div class="image">
+                <img src="./img/tongji_logo.png">
+              </div>
+              <div class="content">
+                <div class="header">教学1系统</div>
+                <div class="description">
+                  学生系统老大哥
+                </div>
+              </div>
+            </div>
+            <div class="card" id="card2" onclick>
+              <div class="image">
+                <img src="./img/canvas_logo.png">
+              </div>
+              <div class="content">
+                <div class="header">Canvas系统</div>
+                <div class="description">
+                  学生学分的命根
+                </div>
+              </div>
+            </div>
+            <div class="card">
+                <div class="image" id="card3" onclick>
+                  <img src="./img/mooc_logo.png">
+                </div>
+                <div class="content">
+                  <div class="header">中国大学MOOC</div>
+                  <div class="description">
+                    课程辅助网站
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="image" id="card4" onclick>
+                  <img src="./img/ketangpai.com_logo.png">
+                </div>
+                <div class="content">
+                  <div class="header">课堂派</div>
+                  <div class="description">
+                    不知道为啥，数学老师爱用
+                  </div>
+                </div>
+              </div>
+        </div>
+
+        <script type="text/javascript">
+            document.getElementById("card1").addEventListener("click",() =>{
+                window.open("https://1.tongji.edu.cn/");
+            });
+            document.getElementById("card2").addEventListener("click",() =>{
+                window.open("https://canvas.tongji.edu.cn/");
+            });
+            document.getElementById("card3").addEventListener("click",() =>{
+                window.open("https://www.icourse163.org/");
+            });
+            document.getElementById("card4").addEventListener("click",() =>{
+                window.open("https://www.ketangpai.com/");
+            });
+        </script>
+        
+    </body>
+    
+</html>
