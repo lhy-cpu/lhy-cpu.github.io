@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <title>钟</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="./img/favicon.ico" type="image/x.icon">
+    <link rel="stylesheet" href="./css/clock.css" type="text/css" />
+    <script src="./js/clockDraw.js" type="text/javascript"></script>
+    <script src="./js/drawDigitalNumber.js" type="text/javascript"></script>
+    <script src="./js/drawAdvancedClock.js" type="text/javascript"></script>
+</head>
+
+<body>
+    <div id="clock_content">
+    </div>
+    <script>
+        var cl = null;
+        var msec = 0;
+        var dn = null;
+        var ac = null;
+        var showImage = new Array();
+        imgNum = 0;
+        var timeChange = (new Date()).getTime() - 1000 * 60 * 10 - 10;
+        var srcList = ["./img/ganyu_3.png", "./img/wangye_1.png", "./img/kelai_1.png", "./img/liuyunjianfen_1.png",
+            "./img/ganyu_4.png", "./img/naxida_1.png", "./img/paimen_1.png", "./img/keqin_1.png",
+            "./img/xiaogong_1.png", "./img/ganyu_1.png", "./img/mona_1.png", "./img/xianglin_1.png",
+            "./img/qiqi_1.png", "./img/ganyu_2.png"
+        ];
+        for (var i = 0; i < srcList.length; i++) {
+            var timg = new Image();
+            timg.src = srcList[i];
+            showImage.push(timg);
+        };
+        // var paimenImg = new Image();
+        //Javascript
+        // paimenImg.src = "./img/paimen_1.png";
+        function addImgToClock(canvans, width) {
+            if ((new Date()).getTime() - timeChange > 1000 * 60 * 10) {
+                var tim = (new Date()).getHours();
+                if (tim <= 6) {
+                    imgNum = Math.floor(Math.random() * 3);
+                } else if (tim <= 9) {
+                    imgNum = Math.floor(3 + Math.random() * 2);
+                } else if (tim <= 11) {
+                    imgNum = Math.floor(5 + Math.random() * 2);
+                } else if (tim <= 12) {
+                    imgNum = Math.floor(7 + Math.random() * 2);
+                } else if (tim <= 16) {
+                    imgNum = Math.floor(9 + Math.random() * 1);
+                } else if (tim <= 18) {
+                    imgNum = Math.floor(10 + Math.random() * 2);
+                } else {
+                    imgNum = Math.floor(12 + Math.random() * 2);
+                };
+                timeChange = (new Date()).getTime();
+            };
+            canvans.drawImage(showImage[imgNum], width * 0.4, width * 0.2, width * 0.2, width * 0.2);
+        };
+
+        window.addEventListener("resize", function () {
+            ac.removeClock();
+            var width = window.innerWidth;
+            if (width > window.innerHeight - 20) {
+                width = window.innerHeight - 20;
+            }
+
+            ac = new AdvancedClockDrawer(width, "#e98121", "clock_content");
+            cl = document.getElementsByTagName("canvas")[0];
+            cl.setAttribute("style", "margin-left:" + ((window.innerWidth - width) / 2) + "px");
+            ac.drawClock(now_format_time(), (canvans, width) => {
+                addImgToClock(canvans, width)
+            });
+            //clock.drawClock(formattedTime);
+        });
+        window.onload = function () {
+
+            var width = window.innerWidth;
+            if (width > window.innerHeight - 20) {
+                width = window.innerHeight - 20;
+            };
+
+            // cl = createAClockCanvas("900px");
+            // dn = new DigitalNumberDrawerInCanvas(cl,400,"#e98121","#4e4e4e","#000000");
+            // setInterval('drawAClock(cl,format_time(msec));msec+=10;',10);
+            // setInterval('var t = now_format_time();drawAClock(cl,t);',10);
+            // drawDigitalNumberInCanvas(cl,10,10,400,"#000000","#00FFFF");
+
+            // setInterval("dn.drawNumber(msec,10,10);if(msec == 9){msec=0;};msec++",1000);
+            // setInterval('var t = now_format_time();drawAdvancedClock(t,900,"#e98121");',10);
+            ac = new AdvancedClockDrawer(width, "#e98121", "clock_content");
+            cl = document.getElementsByTagName("canvas")[0];
+            cl.setAttribute("style", "margin-left:" + ((window.innerWidth - width) / 2) + "px");
+            setInterval('ac.drawClock(now_format_time(),(canvans,width)=>{addImgToClock(canvans,width)})', 50);
+
+
+        };
+
+
+
+        function now_format_time() {
+            var now_time = new Date();
+            return [0, now_time.getHours()].join('').slice(-2) + ":" + [0, now_time.getMinutes()].join('').slice(-2) +
+                ":" + [0, now_time.getSeconds()].join('').slice(-2) + "." + [0, 0, now_time.getMilliseconds()].join('')
+                .slice(-3);
+        };
+
+
+        function format_time(millisecond) {
+            var hour_s = 0;
+            var min_s = 0;
+            var sec = Math.floor(millisecond / 1000);
+            var millisecond_s = millisecond % 1000;
+            if (sec > 2900) {
+                hour_s = Math.floor(sec / 3600);
+                sec -= hour_s * 3600;
+            };
+            if (sec > 59) {
+                min_s = Math.floor(sec / 60);
+                sec -= min_s * 60;
+            };
+            var formatted_time = [0, hour_s].join('').slice(-2) + ":" + [0, min_s].join('').slice(-2) + ":" + [0, sec]
+                .join('').slice(-2) + "." + [0, 0, millisecond_s].join('').slice(-3);
+            return formatted_time;
+        };
+    </script>
+
+</body>
+
+</html>
