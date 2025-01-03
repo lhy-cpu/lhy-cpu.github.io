@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      1.0
+// @version      1.1
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -111,7 +111,14 @@
                 "autoAddStyle":[],
                 "autoAddAttr":[]
             },
-            
+            "www.bilibili.com":
+            {
+                "autoClear": [],
+                "autoRemove": ["[class^='paybar_payBarImageWrap__']","[class^='paybar_textWrap__']"],
+                "autoClick": [".slide-gg>.close-btn",".ad-feedback-menu-dropdown>.feedback-module.reasons>.reasons-list>.reason"],
+                "autoAddStyle":[],
+                "autoAddAttr":[]
+            }
         },
         preventListeners: ["copy"],
         loop_gap: 30
