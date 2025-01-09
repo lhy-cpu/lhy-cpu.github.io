@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      1.1
+// @version      1.2
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -64,9 +64,9 @@
                 "autoClick": [".open-btn"],
                 "autoAddStyle": 
                 [
-                    {"code": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {"pre": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {".forbid": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
+                    {"code": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {"pre": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {".forbid": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
                 ],
                 "autoAddAttr":
                 [
@@ -79,9 +79,9 @@
                 "autoClick": [".toolbar-adver-btn"],
                 "autoAddStyle": 
                 [
-                    {"code": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {"pre": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {".forbid": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
+                    {"code": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {"pre": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {".forbid": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
                 ],
                 "autoAddAttr":
                 [
@@ -95,9 +95,9 @@
                 "autoClick": [".toolbar-adver-btn"],
                 "autoAddStyle": 
                 [
-                    {"code": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {"pre": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {".forbid": "-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
+                    {"code": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {"pre": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {".forbid": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
                 ],
                 "autoAddAttr":
                 [
@@ -116,7 +116,10 @@
                 "autoClear": [],
                 "autoRemove": ["[class^='paybar_payBarImageWrap__']","[class^='paybar_textWrap__']"],
                 "autoClick": [".slide-gg>.close-btn",".ad-feedback-menu-dropdown>.feedback-module.reasons>.reasons-list>.reason"],
-                "autoAddStyle":[],
+                "autoAddStyle":
+                [
+                    {".video-card-ad-small":";display:none;"}
+                ],
                 "autoAddAttr":[]
             }
         },
@@ -155,7 +158,28 @@
 
     const loopFunc_s = (rule_name)=>{
         var rule_s = rule_name;
-        
+
+        rule_s.autoAddStyle.forEach((lis)=>{
+            var ele = document.querySelectorAll(Object.keys(lis)[0]);
+            for (var j = 0; j < ele.length; j++) {
+                var tmp = ele[j].getAttribute("style");
+                if(tmp==null) tmp = "";
+                tmp += Object.values(lis)[0];
+                ele[j].setAttribute("style",tmp);
+                rule_s.autoAddStyle.splice(rule_s.autoAddStyle.indexOf(lis),1);
+            }
+        });
+
+        rule_s.autoAddAttr.forEach((lis)=>{
+            var ele = document.querySelectorAll(Object.keys(lis)[0]);
+            for (var j = 0; j < ele.length; j++) {
+                var attrs = Object.values(lis)[0];
+                for(var i in attrs){
+                    ele[j].setAttribute(i,attrs[i]);
+                    rule_s.autoAddAttr.splice(rule_s.autoAddAttr.indexOf(lis),1);
+                }
+            }
+        });
 
         rule_s.autoClear.forEach((lis)=>{
             var ele = document.querySelectorAll(lis);
@@ -214,8 +238,10 @@
             var ele = document.querySelectorAll(Object.keys(lis)[0]);
             for (var j = 0; j < ele.length; j++) {
                 var tmp = ele[j].getAttribute("style");
+                if(tmp==null) tmp = "";
                 tmp += Object.values(lis)[0];
                 ele[j].setAttribute("style",tmp);
+                rule.autoAddStyle.splice(rule.autoAddStyle.indexOf(lis),1);
             }
         });
 
@@ -225,6 +251,7 @@
                 var attrs = Object.values(lis)[0];
                 for(var i in attrs){
                     ele[j].setAttribute(i,attrs[i]);
+                    rule.autoAddAttr.splice(rule.autoAddAttr.indexOf(lis),1);
                 }
             }
         });
