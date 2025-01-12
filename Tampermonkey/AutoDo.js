@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      1.2
+// @version      1.3
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -66,7 +66,8 @@
                 [
                     {"code": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
                     {"pre": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
-                    {".forbid": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"}
+                    {".forbid": ";-webkit-touch-callout: auto;-webkit-user-select: auto;-khtml-user-select: auto;-moz-user-select: auto;-ms-user-select: auto;user-select: auto;"},
+                    {".cont.first-show":";max-height: none;"}
                 ],
                 "autoAddAttr":
                 [
@@ -166,8 +167,8 @@
                 if(tmp==null) tmp = "";
                 tmp += Object.values(lis)[0];
                 ele[j].setAttribute("style",tmp);
-                rule_s.autoAddStyle.splice(rule_s.autoAddStyle.indexOf(lis),1);
             }
+            rule_s.autoAddStyle.splice(rule_s.autoAddStyle.indexOf(lis),1);
         });
 
         rule_s.autoAddAttr.forEach((lis)=>{
@@ -176,9 +177,9 @@
                 var attrs = Object.values(lis)[0];
                 for(var i in attrs){
                     ele[j].setAttribute(i,attrs[i]);
-                    rule_s.autoAddAttr.splice(rule_s.autoAddAttr.indexOf(lis),1);
                 }
             }
+            rule_s.autoAddAttr.splice(rule_s.autoAddAttr.indexOf(lis),1);
         });
 
         rule_s.autoClear.forEach((lis)=>{
@@ -230,10 +231,6 @@
     var random_rule_name = generateToken(Math.floor(10 * Math.random())+10);
     
     window.addEventListener("load", function () {
-        setTimeout("var "+random_func_name+" = "+loopFunc_s.toString(), 5);
-        setTimeout("var "+random_rule_name+" = "+JSON.stringify(rule), 5);
-        setInterval(random_func_name+"("+random_rule_name+");", configs.loop_gap);
-
         rule.autoAddStyle.forEach((lis)=>{
             var ele = document.querySelectorAll(Object.keys(lis)[0]);
             for (var j = 0; j < ele.length; j++) {
@@ -241,8 +238,9 @@
                 if(tmp==null) tmp = "";
                 tmp += Object.values(lis)[0];
                 ele[j].setAttribute("style",tmp);
-                rule.autoAddStyle.splice(rule.autoAddStyle.indexOf(lis),1);
+
             }
+            rule.autoAddStyle.splice(rule.autoAddStyle.indexOf(lis),1);
         });
 
         rule.autoAddAttr.forEach((lis)=>{
@@ -251,9 +249,13 @@
                 var attrs = Object.values(lis)[0];
                 for(var i in attrs){
                     ele[j].setAttribute(i,attrs[i]);
-                    rule.autoAddAttr.splice(rule.autoAddAttr.indexOf(lis),1);
                 }
             }
+            rule.autoAddAttr.splice(rule.autoAddAttr.indexOf(lis),1);
         });
+
+        setTimeout("var "+random_func_name+" = "+loopFunc_s.toString(), 5);
+        setTimeout("var "+random_rule_name+" = "+JSON.stringify(rule), 5);
+        setInterval(random_func_name+"("+random_rule_name+");", configs.loop_gap);
     });
 })();
