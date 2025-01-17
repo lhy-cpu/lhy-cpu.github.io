@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      1.3
+// @version      1.4
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -76,7 +76,7 @@
             "blog.csdn.net":
             {
                 "autoClear": [".css-1ynzxqw"],
-                "autoRemove": [".passport-login-container",".passport-login-tip-container.false","div.left-toolbox",".hide-article-box.hide-article-pos.text-center",".hljs-button.signin.active.add_def",".btn-code-notes.mdeditor",".btn-code-notes.ckeditor",".code-edithtml.active","#asideWriteGuide",".box-shadow.mb8"],
+                "autoRemove": [".passport-login-container",".passport-login-tip-container.false","div.left-toolbox",".hide-article-box.hide-article-pos.text-center",".hljs-button.signin.active",".btn-code-notes.mdeditor",".btn-code-notes.ckeditor",".code-edithtml.active","#asideWriteGuide",".box-shadow.mb8"],
                 "autoClick": [".toolbar-adver-btn"],
                 "autoAddStyle": 
                 [
