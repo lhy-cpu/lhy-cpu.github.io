@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.0
+// @version      2.1
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -125,7 +125,8 @@
                 "autoAddStyle":
                 [
                     {".video-card-ad-small":";display:none;"},
-                    {".video-card-ad-small-inner":";display:none;"}
+                    {".video-card-ad-small-inner":";display:none;"},
+                    {".strip-ad":";display:none;"}
                 ],
                 "autoAddAttr":[]
             }
