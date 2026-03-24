@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.1
+// @version      2.2
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -77,7 +77,7 @@
             {
                 "autoClear": [".css-1ynzxqw"],
                 "autoRemove": [".passport-login-container",".passport-login-tip-container.false","div.left-toolbox",".hide-article-box.hide-article-pos.text-center",".hljs-button.signin.active",".btn-code-notes.mdeditor",".btn-code-notes.ckeditor",".code-edithtml.active","#asideWriteGuide",".box-shadow.mb8"],
-                "autoClick": [".toolbar-adver-btn",".close-btn"],
+                "autoClick": [".toolbar-adver-btn",".clocse-btn"],
                 "autoAddStyle":
                 [
                     {"code": ";-webkit-touch-callout: default;-webkit-user-select: text;-khtml-user-select: text;-moz-user-select: text;-ms-user-select: text;user-select: text;"},
@@ -87,7 +87,19 @@
                     {"#blogAiChat":";display:none;"},
                     {".swiper-slide-box-remuneration":";display:none;"},
                     {".c-blog-side-box":";display:none;"},
-                    {".slide-details-cknows-box":";display:none;"}
+                    {".slide-details-cknows-box":";display:none;"},
+                    //{".recommend-box":";display:none;"},
+                    {".starmap-box":";display:none;"},
+                    {".toolbar-btn-vip":";display:none;"},
+                    {".gitcode-quick-app":";display:none;"},
+                    {".sidecolumn-vip":";display:none;"},
+                    {".sidecolumn-deepseek":";display:none;"},
+                    {".toolbar-menus li[title*=\"高价值\"]":";display:none;"},
+                    {".toolbar-menus li[title*=\"代码托管\"]":";display:none;"},
+                    {".toolbar-menus li[title*=\"GPU算力\"]":";display:none;"},
+                    {"#toolbar-c-box-button":";display:none;"},
+                    {".toolbar-btns.onlyUser":";display:none;"},
+                    {"#gitcode-repo-iframe":";display:none;"},
                 ],
                 "autoAddAttr":
                 [
