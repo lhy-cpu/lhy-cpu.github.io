@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.2
+// @version      2.2.1
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
