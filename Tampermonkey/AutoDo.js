@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.2.1
-// @description  Make it easy to automatically do something.
+// @version      2.2.2
+// @description  Make it easy to automatically do something. - Deprecated
 // @author       lhy-cpu
 // @match        *://*/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        none
 // @run-at       document-start
-// @updateURL    https://lhy-cpu.github.io/Tampermonkey/AutoDo.js
-// @downloadURL  https://lhy-cpu.github.io/Tampermonkey/AutoDo.js
+// @updateURL    https://lhy-cpu.github.io/Tampermonkey/AutoDo.user.js
+// @downloadURL  https://lhy-cpu.github.io/Tampermonkey/AutoDo.user.js
 // @homepage     https://lhy-cpu.github.io/Tampermonkey/index.html
 // ==/UserScript==
 
