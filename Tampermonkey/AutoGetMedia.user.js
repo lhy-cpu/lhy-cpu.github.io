@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGetMedia
 // @namespace    https://lhy-cpu.github.io
-// @version      0.1.0
+// @version      0.1.1
 // @description  拦截网络请求，并筛选出其中的媒体文件（视频、音频等），类似控制台的网络面板功能。(Beta)
 // @author       lhy-cpu
 // @match        *://*/*
@@ -189,38 +189,38 @@
         agmContainer = document.createElement('div');
         agmContainer.id = 'agm-container';
         agmContainer.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 2147483647;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            width: 320px;
-            pointer-events: none;
+            position: fixed !important;
+            top: 20px !important;
+            right: 20px !important;
+            z-index: 2147483647 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+            width: 320px !important;
+            pointer-events: none !important;
         `;
 
         const header = document.createElement('div');
         header.style.cssText = `
-            background: #2b2b2b;
-            color: #4CAF50;
-            padding: 8px 12px;
-            cursor: pointer;
-            border-radius: 6px;
-            font-size: 14px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            pointer-events: auto;
-            border: 1px solid #4CAF50;
+            background: #2b2b2b !important;
+            color: #4CAF50 !important;
+            padding: 8px 12px !important;
+            cursor: pointer !important;
+            border-radius: 6px !important;
+            font-size: 14px !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
+            pointer-events: auto !important;
+            border: 1px solid #4CAF50 !important;
         `;
         const isChecked = GM_getValue(blockKey, false) ? 'checked="checked"' : '';
         header.innerHTML = `
-            <span style="font-weight: bold; display: flex; align-items: center;">
+            <span style="font-weight: bold !important; display: flex !important; align-items: center !important;">
                 URLs (<span id="agm-count">${mediaUrls.size}</span>)
             </span>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <label style="font-size:12px; display:flex; align-items:center; cursor:pointer; color: #ff6b6b; font-weight: normal; margin: 0;" onclick="event.stopPropagation()">
-                    <input type="checkbox" id="agm-block-switch" ${isChecked} style="margin-right: 4px; cursor: pointer;"> 阻断直连
+            <div style="display: flex !important; align-items: center !important; gap: 10px !important;">
+                <label style="font-size:12px !important; display:flex !important; align-items:center !important; cursor:pointer !important; color: #ff6b6b !important; font-weight: normal !important; margin: 0 !important;" onclick="event.stopPropagation()">
+                    <input type="checkbox" id="agm-block-switch" ${isChecked} style="margin-right: 4px !important; cursor: pointer !important; clip: auto !important; appearance: checkbox !important; width: 13px !important; height: 13px !important; opacity: 1 !important; visibility: visible !important; position: static !important;"> 阻断直连
                 </label>
                 <span id="agm-toggle">▼</span>
             </div>
@@ -229,24 +229,24 @@
         const listWrapper = document.createElement('div');
         listWrapper.id = 'agm-list-wrapper';
         listWrapper.style.cssText = `
-            display: none;
-            background: #fff;
-            border: 1px solid #ddd;
-            max-height: 400px;
-            overflow-y: auto;
-            margin-top: 8px;
-            border-radius: 6px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            pointer-events: auto;
+            display: none !important;
+            background: #fff !important;
+            border: 1px solid #ddd !important;
+            max-height: 400px !important;
+            overflow-y: auto !important;
+            margin-top: 8px !important;
+            border-radius: 6px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+            pointer-events: auto !important;
         `;
 
         agmList = document.createElement('ul');
         agmList.style.cssText = `
-            list-style: none;
-            margin: 0;
-            padding: 10px;
-            font-size: 12px;
-            word-break: break-all;
+            list-style: none !important;
+            margin: 0 !important;
+            padding: 10px !important;
+            font-size: 12px !important;
+            word-break: break-all !important;
         `;
 
         listWrapper.appendChild(agmList);
@@ -280,21 +280,21 @@
     function renderUrlItem(url) {
         if (!agmList) return;
         const li = document.createElement('li');
-        li.style.cssText = 'margin-bottom: 8px; border-bottom: 1px dashed #eee; padding-bottom: 8px;';
+        li.style.cssText = 'margin-bottom: 8px !important; border-bottom: 1px dashed #eee !important; padding-bottom: 8px !important;';
         
         const a = document.createElement('a');
         a.href = url;
         a.target = '_blank';
-        a.style.cssText = 'color: #1a73e8; text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;';
+        a.style.cssText = 'color: #1a73e8 !important; text-decoration: none !important; display: block !important; overflow: hidden !important; text-overflow: ellipsis !important; display: -webkit-box !important; -webkit-line-clamp: 3 !important; -webkit-box-orient: vertical !important;';
         a.innerText = url;
         
         // 自动解析类型按钮
         const opDiv = document.createElement('div');
-        opDiv.style.cssText = 'margin-top: 4px; display: flex; gap: 8px;';
+        opDiv.style.cssText = 'margin-top: 4px !important; display: flex !important; gap: 8px !important;';
         
         const copyBtn = document.createElement('button');
         copyBtn.innerText = '复制链接';
-        copyBtn.style.cssText = 'border: 1px solid #ccc; background: #f8f9fa; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 11px; color: #333;';
+        copyBtn.style.cssText = 'border: 1px solid #ccc !important; background: #f8f9fa !important; border-radius: 3px !important; cursor: pointer !important; padding: 2px 6px !important; font-size: 11px !important; color: #333 !important;';
         copyBtn.onclick = (e) => {
             e.preventDefault();
             navigator.clipboard.writeText(url).then(() => {
@@ -306,7 +306,7 @@
         
         const downloadBtn = document.createElement('button');
         downloadBtn.innerText = '下载资源';
-        downloadBtn.style.cssText = 'border: 1px solid #1a73e8; background: #e8f0fe; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 11px; color: #1a73e8;';
+        downloadBtn.style.cssText = 'border: 1px solid #1a73e8 !important; background: #e8f0fe !important; border-radius: 3px !important; cursor: pointer !important; padding: 2px 6px !important; font-size: 11px !important; color: #1a73e8 !important;';
         downloadBtn.onclick = async (e) => {
             e.preventDefault();
             const originalText = downloadBtn.innerText;
