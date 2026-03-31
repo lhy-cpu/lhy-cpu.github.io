@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.2.3
+// @version      2.2.4
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -100,6 +100,8 @@
                     {"#toolbar-c-box-button":";display:none;"},
                     {".toolbar-btns.onlyUser":";display:none;"},
                     {"#gitcode-repo-iframe":";display:none;"},
+                    {".runner-box.box3.ins-code-runner-btn":";display:none;"},
+                    {".runner-box.box2":";display:none;"}
                 ],
                 "autoAddAttr":
                 [
