@@ -1,42 +1,510 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Countdown</title>
-</head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">LHYe200 - 个人主页</title>
+    <link rel="icon" type="image/x-icon" href="assets/img/favicon.ico">
+    <style>
+        :root {
+            --bg-color: #0f111a;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.4);
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+        }
 
-<body style="background-color: white;">
-    <h1 id="ccou" style="color: burlywo;">00:00:00</h1>
-    <script>
-        setShow();
-        setInterval("setShow()",500);
-        function setShow(){
-            var at = new Date();
-            var ti = at.getHours()*3600+at.getMinutes()*60+at.getSeconds();
-            if(ti<39600){
-                document.getElementById("ccou").innerText = format_time(39600-ti);
-            }else{
-                document.getElementById("ccou").innerText = "00:00:00";
-                document.getElementById("ccou").setAttribute("style","color:red;");
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.08), transparent 25%),
+                              radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.08), transparent 25%);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        header {
+            margin-bottom: 5rem;
+            animation: fadeInDown 1s ease-out;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #e2e8f0, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+        }
+
+        .avatar {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--card-border);
+            box-shadow: 0 0 20px var(--accent-glow);
+            margin-bottom: 1.5rem;
+            background-color: var(--card-bg);
+        }
+
+        .cards-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-top: 2rem;
+            justify-content: center; /* or flex-start if left-aligned */
+        }
+        
+        .github-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 1rem;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 1rem 1.5rem;
+            border-radius: 16px;
+            text-decoration: none;
+            color: var(--text-main);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            max-width: fit-content;
+        }
+
+        .github-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2), 0 0 15px var(--accent-glow);
+        }
+
+        .github-card svg,
+        .github-card img {
+            width: 28px;
+            height: 28px;
+            fill: currentColor;
+            object-fit: contain;
+        }
+
+        .github-card-content {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+        }
+
+        .github-card-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .github-card-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 3rem 1.5rem;
+            }
+            h1 {
+                font-size: 2.5rem;
+            }
+            .subtitle {
+                font-size: 1.05rem;
+            }
+            header {
+                margin-bottom: 3.5rem;
+            }
+            .avatar {
+                width: 90px;
+                height: 90px;
+            }
+            .github-card {
+                padding: 0.8rem 1.2rem;
+            }
+            .github-card-title {
+                font-size: 1rem;
+            }
+            .lang-switch {
+                top: 1rem;
+                right: 1rem;
             }
         }
-        function format_time(sec) {
-            var hour_s = 0;
-            var min_s = 0;
-            if (sec > 2900) {
-                hour_s = Math.floor(sec / 3600);
-                sec -= hour_s * 3600;
-            };
-            if (sec > 59) {
-                min_s = Math.floor(sec / 60);
-                sec -= min_s * 60;
-            };
-            var formated_time = [0, hour_s].join('').slice(-2) + ":" + [0, min_s].join('').slice(-2) + ":" + [0, sec]
-                .join('').slice(-2);
-            return formated_time;
+
+        section {
+            margin-bottom: 4rem;
+            animation: fadeIn 1s ease-out 0.3s both;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        h2::before {
+            content: "";
+            display: block;
+            width: 8px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 4px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 1.5rem;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+            color: #f8fafc;
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .tag {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 99px;
+            color: var(--text-muted);
+        }
+
+        .timeline {
+            border-left: 2px solid var(--card-border);
+            padding-left: 1.5rem;
+            margin-left: 0.5rem;
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 2rem;
+        }
+
+        .timeline-item::before {
+            content: "";
+            position: absolute;
+            left: -1.85rem;
+            top: 0.3rem;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .lang-switch {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 0.5rem;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 99px;
+            padding: 0.25rem;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 0.4rem 1rem;
+            border-radius: 99px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .lang-btn.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+        }
+        
+        .lang-btn:hover:not(.active) {
+            color: var(--text-main);
+        }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="lang-switch">
+        <button class="lang-btn active" onclick="switchLanguage('zh')">中</button>
+        <button class="lang-btn" onclick="switchLanguage('en')">EN</button>
+    </div>
+
+    <div class="container">
+        <header>
+            <img src="assets/img/avatar.png" alt="LHY Avatar" class="avatar">
+            <h1 data-i18n="name">LHYe200</h1>
+            <p class="subtitle" data-i18n="subtitle">全栈开发者 | 嵌入式开发爱好者 | AI 探索者</p>
+            <div class="cards-container">
+                <a href="https://github.com/lhy-cpu" target="_blank" class="github-card">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    <div class="github-card-content">
+                        <span class="github-card-title" data-i18n="github">GitHub 主页</span>
+                        <span class="github-card-desc" data-i18n="github_desc">探索我的开源代码与项目</span>
+                    </div>
+                </a>
+                
+                <a href="https://gitea.lhye.work" target="_blank" class="github-card">
+                    <img src="assets/img/gitea-logo.svg" alt="Gitea Logo">
+                    <div class="github-card-content">
+                        <span class="github-card-title" data-i18n="gitea_title">个人 Gitea</span>
+                        <span class="github-card-desc" data-i18n="gitea_desc">私有代码托管与 CI/CD</span>
+                    </div>
+                </a>
+
+                <a href="https://alist.lhye.work" target="_blank" class="github-card">
+                    <img src="assets/img/alist-logo.svg" alt="Alist Logo">
+                    <div class="github-card-content">
+                        <span class="github-card-title" data-i18n="alist_title">个人网盘 (Alist)</span>
+                        <span class="github-card-desc" data-i18n="alist_desc">文件存储与分享服务</span>
+                    </div>
+                </a>
+
+                <a href="https://lhy-cpu.github.io/Tampermonkey/" target="_blank" class="github-card">
+                    <img src="assets/img/tampermonkey-logo.svg" alt="Tampermonkey Logo">
+                    <div class="github-card-content">
+                        <span class="github-card-title" data-i18n="script_title">个人脚本中心</span>
+                        <span class="github-card-desc" data-i18n="script_desc">油猴脚本与增强插件</span>
+                    </div>
+                </a>
+            </div>
+        </header>
+
+        <section>
+            <h2 data-i18n="timeline_title">学习历程与技术路线</h2>
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h3 data-i18n="t1_title">1. 应用基石 (Java生态)</h3>
+                    <p data-i18n="t1_desc">旅程始于可靠的 <strong>Java</strong>。通过构建跨平台的 Java 应用程序、开发 JavaWeb 后端服务、编写 Android 移动端应用，甚至为 Minecraft (Java版) 编写高自由度插件，确立了扎实的面向对象编程思维。</p>
+                </div>
+                <div class="timeline-item">
+                    <h3 data-i18n="t2_title">2. 深入底层 (C/C++ & 嵌入式硬件)</h3>
+                    <p data-i18n="t2_desc">为了探究“计算机底层是如何工作的”，深入学习了 <strong>C/C++</strong>，并结合电子硬件开发积累了丰富的经验。在底层编程上，操作过 STC 宏晶单片机、STM32、ESP 系列到 Infineon AURIX™ TC 系列等芯片，并涉猎了<strong>树莓派 (Raspberry Pi)</strong>、<strong>NVIDIA Jetson</strong>、<strong>RK (Rockchip) 系列</strong>等各类开发板与<strong>嵌入式 Linux 应用</strong>开发。在硬件设计上，拥有自行绘制 <strong>PCB</strong> 的经验（包括中高速 USB2.0 设计与 6层 PCB+BGA 设计），独立设计过各类单片机应用板、DC-DC、飞控、电调、FOC控制板及开发板，并且目前正在积极探索架构更底层的 <strong>FPGA</strong> 技术。</p>
+                </div>
+                <div class="timeline-item">
+                    <h3 data-i18n="t3_title">3. 全栈拓展 (Web生态)</h3>
+                    <p data-i18n="t3_desc">旨在掌控现代产品完整的生命周期，掌握了 <strong>HTML/CSS/JavaScript</strong>。这包括构建流畅的 Web 前端页面体验、开发异步 <strong>Node.js</strong> 后端，以及编写实用的浏览器插件。</p>
+                </div>
+                <div class="timeline-item">
+                    <h3 data-i18n="t4_title">4. 智能与自动化 (Python & AI)</h3>
+                    <p data-i18n="t4_desc">目前正全身心探索 <strong>Python</strong> 前沿。从编写高效的小工具和脚本起步，如今的重心已深度聚焦于人工智能领域，尤其是大语言模型 (LLM)、AI 视觉以及计算机视觉 (CV)。</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2 data-i18n="stack_title">技术栈矩阵</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3 data-i18n="c1_title">后端与应用</h3>
+                    <p data-i18n="c1_desc">可靠的逻辑与系统架构。</p>
+                    <div class="tags">
+                        <span class="tag">Java</span>
+                        <span class="tag">JavaWeb</span>
+                        <span class="tag">Node.js</span>
+                        <span class="tag">Flask</span>
+                        <span class="tag">Android Dev</span>
+                        <span class="tag">Minecraft Plugins</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 data-i18n="c2_title">嵌入式与底层硬件</h3>
+                    <p data-i18n="c2_desc">精准的控制设计与芯片级工程方案。</p>
+                    <div class="tags">
+                        <span class="tag">C / C++</span>
+                        <span class="tag">PCB Design</span>
+                        <span class="tag">STC MCU</span>
+                        <span class="tag">STM32</span>
+                        <span class="tag">ESP Series</span>
+                        <span class="tag">Infineon AURIX™</span>
+                        <span class="tag">Raspberry Pi</span>
+                        <span class="tag">NVIDIA Jetson</span>
+                        <span class="tag">RK Boards</span>
+                        <span class="tag">Embedded Linux</span>
+                        <span class="tag">FPGA (Exploring)</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 data-i18n="c3_title">前端与Web</h3>
+                    <p data-i18n="c3_desc">流畅的用户界面与交互体验。</p>
+                    <div class="tags">
+                        <span class="tag">HTML / CSS</span>
+                        <span class="tag">JavaScript</span>
+                        <span class="tag">Web Frontend</span>
+                        <span class="tag">Browser Extensions</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 data-i18n="c4_title">人工智能与脚本</h3>
+                    <p data-i18n="c4_desc">现阶段自动化的核心探索重点。</p>
+                    <div class="tags">
+                        <span class="tag">Python</span>
+                        <span class="tag">LLM</span>
+                        <span class="tag">AI Vision</span>
+                        <span class="tag">Computer Vision (CV)</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer style="text-align: center; padding: 2rem 0; font-size: 0.8rem; color: var(--text-muted); margin-top: 2rem;">
+        <p>Page server in LHYe200's Server</p>
+    </footer>
+
+    <script>
+        const translations = {
+            zh: {
+                title: "LHYe200 - 个人主页",
+                name: "LHYe200",
+                subtitle: "全栈开发者 | 嵌入式开发爱好者 | AI 探索者",
+                github: "GitHub 主页",
+                github_desc: "探索我的开源代码与项目",
+                gitea_title: "个人 Gitea",
+                gitea_desc: "私有代码托管与 CI/CD",
+                alist_title: "个人网盘 (Alist)",
+                alist_desc: "文件存储与分享服务",
+                script_title: "个人脚本中心",
+                script_desc: "油猴脚本与增强插件",
+                timeline_title: "学习历程与技术路线",
+                t1_title: "1. 应用基石 (Java生态)",
+                t1_desc: "旅程始于可靠的 <strong>Java</strong>。通过构建跨平台的 Java 应用程序、开发 JavaWeb 后端服务、编写 Android 移动端应用，甚至为 Minecraft (Java版) 编写高自由度插件，确立了扎实的面向对象编程思维。",
+                t2_title: "2. 深入底层 (C/C++ & 嵌入式硬件)",
+                t2_desc: "为了探究“计算机底层是如何工作的”，深入学习了 <strong>C/C++</strong>，并结合电子硬件开发积累了丰富的经验。在底层编程上，操作过 STC 宏晶单片机、STM32、ESP 系列到 Infineon AURIX™ TC 系列等芯片，并涉猎了<strong>树莓派 (Raspberry Pi)</strong>、<strong>NVIDIA Jetson</strong>、<strong>RK (Rockchip) 系列</strong>等各类开发板与<strong>嵌入式 Linux 应用</strong>开发。在硬件设计上，拥有自行绘制 <strong>PCB</strong> 的经验（包括中高速 USB2.0 设计与 6层 PCB+BGA 设计），独立设计过各类单片机应用板、DC-DC、飞控、电调、FOC控制板及开发板，并且目前正在积极探索架构更底层的 <strong>FPGA</strong> 技术。",
+                t3_title: "3. 全栈拓展 (Web生态)",
+                t3_desc: "旨在掌控现代产品完整的生命周期，掌握了 <strong>HTML/CSS/JavaScript</strong>。这包括构建流畅的 Web 前端页面体验、搭建基于 <strong>Node.js</strong> 和 <strong>Flask</strong> 的后端服务，以及编写实用的浏览器插件。",
+                t4_title: "4. 智能与自动化 (Python & AI)",
+                t4_desc: "目前正全身心探索 <strong>Python</strong> 前沿。从编写高效的小工具和脚本起步，如今的重心已深度聚焦于人工智能领域，尤其是大语言模型 (LLM)、AI 视觉以及计算机视觉 (CV)。",
+                stack_title: "技术栈矩阵",
+                c1_title: "后端与应用",
+                c1_desc: "可靠的逻辑与系统架构。",
+                c2_title: "嵌入式与底层硬件",
+                c2_desc: "精准的控制设计与芯片级工程方案。",
+                c3_title: "前端与Web",
+                c3_desc: "流畅的用户界面与交互体验。",
+                c4_title: "人工智能与脚本",
+                c4_desc: "现阶段自动化的核心探索重点。"
+            },
+            en: {
+                title: "LHYe200 - Personal Homepage",
+                name: "LHYe200",
+                subtitle: "Full-Stack Developer | Embedded Systems Enthusiast | AI Explorer",
+                github: "GitHub Profile",
+                github_desc: "Explore my open-source projects",
+                gitea_title: "Personal Gitea",
+                gitea_desc: "Private code hosting & CI/CD",
+                alist_title: "Personal NetDisk (Alist)",
+                alist_desc: "File storage & sharing service",
+                script_title: "Personal Scripts",
+                script_desc: "Tampermonkey scripts & plugins",
+                timeline_title: "Learning Journey & Tech Roadmap",
+                t1_title: "1. OOP & App Foundation (Java)",
+                t1_desc: "Started the journey with <strong>Java</strong>. Explored the lengths of object-oriented programming through Java Applications, Java Web backend, Android App development, and even engaged in gaming modding via Minecraft Java Edition plugins.",
+                t2_title: "2. Down to the Metal (C/C++ & Embedded Hardware)",
+                t2_desc: "Transitioned into <strong>C/C++</strong> and hardware engineering to understand underlying architectures. Programmed various microcontrollers including STC MCU, STM32, ESP series, and Infineon AURIX™ TC-Series, alongside developing for diverse boards like <strong>Raspberry Pi</strong>, <strong>NVIDIA Jetson</strong>, and <strong>RK (Rockchip) series</strong> for <strong>Embedded Linux Applications</strong>. Gained extensive experience in <strong>PCB Design</strong>, including high-speed USB 2.0 lines and 6-layer boards with BGA components. Independently designed DC-DC converters, flight controllers, ESCs, FOC control boards, and dev boards. Currently exploring <strong>FPGA</strong> technologies.",
+                t3_title: "3. Full-Stack Expansion (Web)",
+                t3_desc: "Expanded into the modern web ecosystem aiming for complete product lifecycle mastery. Learned <strong>HTML/CSS/JavaScript</strong> to build robust Web Frontends, engineered <strong>Node.js</strong> and <strong>Flask</strong> backends, and developed practical Browser Extensions.",
+                t4_title: "4. Intelligence & Automation (Python & AI)",
+                t4_desc: "Currently advancing the frontier with <strong>Python</strong>. What started as building scripts and mini-tools has evolved into deep research in Artificial Intelligence, focusing on Large Language Models (LLM), AI Vision, and Computer Vision (CV).",
+                stack_title: "Technical Stacks",
+                c1_title: "Backend & Applications",
+                c1_desc: "Solid backend logic and scalable architectures.",
+                c2_title: "Embedded & Hardware",
+                c2_desc: "Precise control and chip-level engineering solutions.",
+                c3_title: "Frontend & Web",
+                c3_desc: "Interactive interfaces and user experiences.",
+                c4_title: "AI & Scripting",
+                c4_desc: "Current focus on automation and intelligence."
+            }
         };
+
+        function switchLanguage(lang) {
+            // Update button styles
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update text nodes
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (translations[lang][key]) {
+                    el.innerHTML = translations[lang][key];
+                }
+            });
+            
+            // Adjust HTML lang attribute
+            document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+        }
     </script>
 </body>
-
 </html>
