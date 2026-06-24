@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script (Mobile Version)
 // @namespace    https://lhy-cpu.github.io
-// @version      2.2.4
+// @version      2.2.5
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -82,20 +82,10 @@
                 [
                     {"code": ";-webkit-touch-callout: default;-webkit-user-select: text;-khtml-user-select: text;-moz-user-select: text;-ms-user-select: text;user-select: text;"},
                     {"#operate":";display:none;"},
-                ],
-                "autoAddAttr":
-                [
-                ]
-            },
-            "*.blog.csdn.net":
-            {
-                "autoClear": [],
-                "autoRemove": [".weixin-shadowbox.wap-shadowbox",".containerContent_8u7652y6"],
-                "autoClick": [".readall_box:not([style*=\"display: none;\"]) .click_read_more",".click_read_more_shadowbox.wap-shadowbox[style*=\"display: block\"] .app-ab-cance",".passport-login-container img"],
-                "autoAddStyle":
-                [
-                    {"code": ";-webkit-touch-callout: default;-webkit-user-select: text;-khtml-user-select: text;-moz-user-select: text;-ms-user-select: text;user-select: text;"},
-                    {"#operate":";display:none;"},
+                    {".readall_box":";display:none;"},
+                    {".article_content":";height: auto;"},
+                    {"#csdn-toolbar":";display:none;"},
+                    {"#main":";margin-top:0px;"}
                 ],
                 "autoAddAttr":
                 [

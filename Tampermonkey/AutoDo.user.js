@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Easy Auto Do script
 // @namespace    https://lhy-cpu.github.io
-// @version      2.2.4
+// @version      2.2.5
 // @description  Make it easy to automatically do something.
 // @author       lhy-cpu
 // @match        *://*/*
@@ -76,7 +76,7 @@
             "blog.csdn.net":
             {
                 "autoClear": [".css-1ynzxqw"],
-                "autoRemove": [".passport-login-container",".passport-login-tip-container.false","div.left-toolbox",".hide-article-box.hide-article-pos.text-center",".hljs-button.signin.active",".btn-code-notes.mdeditor",".btn-code-notes.ckeditor",".code-edithtml.active","#asideWriteGuide",".box-shadow.mb8"],
+                "autoRemove": [".js-aside-cknows",".passport-login-container",".passport-login-tip-container.false","div.left-toolbox",".hide-article-box.hide-article-pos.text-center",".hljs-button.signin.active",".btn-code-notes.mdeditor",".btn-code-notes.ckeditor",".code-edithtml.active","#asideWriteGuide",".box-shadow.mb8"],
                 "autoClick": [".toolbar-adver-btn",".clocse-btn"],
                 "autoAddStyle":
                 [
@@ -101,7 +101,9 @@
                     {".toolbar-btns.onlyUser":";display:none;"},
                     {"#gitcode-repo-iframe":";display:none;"},
                     {".runner-box.box3.ins-code-runner-btn":";display:none;"},
-                    {".runner-box.box2":";display:none;"}
+                    {".runner-box.box2":";display:none;"},
+                    {".toolbar-advert":";display:none;"},
+                    {"#swiper-remuneration-container":";display:none;"}
                 ],
                 "autoAddAttr":
                 [
