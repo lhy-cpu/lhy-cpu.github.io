@@ -1,0 +1,40 @@
+FlowSketch
+
+The FlowSketch project source and documentation are distributed under the
+GNU General Public License version 3. See LICENSE.
+
+This distribution includes fflate 0.8.2 by Arjun Barrett for ZIP creation and
+extraction. fflate is distributed under the MIT License. Its complete license
+text is preserved at assets/vendor/fflate.LICENSE, and its upstream project is
+https://github.com/101arrowz/fflate.
+
+This distribution includes KaTeX 0.16.22 and the KaTeX mathematical fonts for
+LaTeX formula layout. KaTeX is distributed under the MIT License. Its complete
+license text is preserved at assets/vendor/katex.LICENSE, and its upstream
+project is https://github.com/KaTeX/KaTeX.
+
+This distribution includes MathLive 0.110.0 by Arno Gourdol for visual
+mathematical input, editable placeholders, nested formula structures, and the
+mathematical virtual keyboard. MathLive is distributed under the MIT License.
+Its complete license text is preserved at assets/vendor/mathlive/LICENSE.txt,
+and its upstream project is https://github.com/arnog/mathlive.
+
+This distribution includes html2canvas 1.4.1 by Niklas von Hertzen for PNG
+canvas rendering. html2canvas is distributed under the MIT License. Its
+complete license text is preserved at assets/vendor/html2canvas.LICENSE, and
+its upstream project is https://github.com/niklasvh/html2canvas.
+
+The FlowSketch interface embeds an unmodified copy of
+HarmonyOS_Sans_SC_Regular.ttf, copyright 2021 Huawei Device Co., Ltd. The font
+is bundled and redistributed under the HarmonyOS Sans Fonts License Agreement.
+The complete agreement is preserved at
+assets/vendor/harmonyos-sans/LICENSE.txt. The font is not sold or distributed
+as a stand-alone product.
+
+examples/transformer.json is an original editable FlowSketch diagram created
+for this project's documentation. assets/readme-example.png was rendered and
+exported from that project using the FlowSketch editor at https://draw.lhye.work/.
+assets/readme-editor.jpg is an actual screenshot of the same diagram being
+edited in FlowSketch. These documentation assets are distributed under the
+project's GNU General Public License version 3. Transformer architecture concepts
+follow Vaswani et al., "Attention Is All You Need" (2017), https://arxiv.org/abs/1706.03762.
