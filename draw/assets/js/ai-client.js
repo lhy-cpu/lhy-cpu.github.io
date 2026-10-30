@@ -27,6 +27,42 @@
     return fail('API 请求失败（HTTP ' + status + '）。' + advice);
   }
 
+  function relayEndpoint(value = 'http://127.0.0.1:18765') {
+    let url;
+    try { url = new URL(value); } catch (_) { throw fail('本地转发地址无效，请填写 http://127.0.0.1:18765。'); }
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) ||
+        url.username || url.password || url.pathname !== '/' || url.href.includes('?') || url.href.includes('#')) {
+      throw fail('本地转发仅支持本机 HTTP 地址（127.0.0.1 或 localhost，可指定端口），不能包含路径、用户名或查询参数。');
+    }
+    return url.origin;
+  }
+
+  function relayHeaders(config) {
+    if (typeof config.relayToken !== 'string' || !config.relayToken.trim() || config.relayToken.length > 256 || /[^\x21-\x7e]/.test(config.relayToken)) {
+      throw fail('请粘贴本地转发脚本启动时显示的连接口令。');
+    }
+    return { 'X-FlowSketch-Token': config.relayToken };
+  }
+
+  async function checkRelay(config, signal) {
+    const url = relayEndpoint(config.relayUrl) + '/health';
+    const headers = relayHeaders(config);
+    try {
+      const response = await fetch(url, { method: 'GET', headers, signal, targetAddressSpace: 'loopback',
+        credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error' });
+      if (!response.ok) throw fail('本地转发连接失败（HTTP ' + response.status + '），请检查启动参数中的网页来源及连接口令。');
+      let text = '';
+      await readBody(response, chunk => { text += chunk; });
+      const data = JSON.parse(text);
+      if (data.service !== 'flowsketch-local-relay' || data.version !== 1) throw fail('该地址不是兼容的 FlowSketch 本地转发服务。');
+      return true;
+    } catch (error) {
+      if (signal?.aborted) throw fail('本地转发连接测试已取消或超时。');
+      if (localErrors.has(error)) throw error;
+      throw fail('无法连接本地转发。请先运行脚本，核对网页来源和口令，并允许浏览器的本地网络／回环网络访问权限；站点策略也可能限制连接。');
+    }
+  }
+
   function finish(reason) {
     if (reason === 'length') throw fail('模型输出被长度限制截断，未执行任何操作。请提高输出限额或缩短请求。');
     if (reason === 'content_filter') throw fail('模型输出被内容过滤中断，未执行任何操作。');
@@ -203,16 +239,22 @@
 
   async function complete({ config, messages, tools, signal, onDelta }) {
     if (!config || typeof config.model !== 'string' || !config.model.trim() || !Array.isArray(messages)) throw fail('请配置模型并提供有效的消息列表。');
-    const url = endpoint(config.apiUrl);
+    const target = endpoint(config.apiUrl);
+    const local = config.connection === 'local';
+    const url = local ? relayEndpoint(config.relayUrl) + '/proxy' : target;
     const headers = { 'Content-Type': 'application/json', Accept: config.stream ? 'text/event-stream' : 'application/json' };
     if (config.key) headers.Authorization = 'Bearer ' + config.key;
+    if (local) Object.assign(headers, relayHeaders(config), { 'X-FlowSketch-Target': target });
     const body = { model: config.model, messages, stream: !!config.stream };
     if (config.mode === 'tools') { body.tools = tools || []; body.tool_choice = 'auto'; }
     let responseReceived = false;
     try {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal,
-        credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error' });
+        credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', ...(local ? { targetAddressSpace: 'loopback' } : {}) });
       responseReceived = true;
+      if (local && !response.ok && response.headers.get('X-FlowSketch-Relay-Error')) {
+        throw fail('本地转发未完成请求（HTTP ' + response.status + '）。请检查脚本、网页来源、连接口令及上游网络；API URL 仍需填写供应商的真实地址。');
+      }
       if (!response.ok) throw httpError(response.status);
       return await (config.stream ? readSSE(response, onDelta) : readJSON(response));
     } catch (error) {
@@ -220,6 +262,11 @@
       // Only our fixed, local messages are shown; network/server errors may contain credentials.
       if (error && localErrors.has(error)) throw error;
       if (!responseReceived) {
+        if (local) {
+          const error = fail('无法连接本地转发。请在本机运行脚本并保持终端开启，检查地址和口令，并允许浏览器的本地网络／回环网络访问权限。站点的连接策略也可能拦截本机请求。');
+          error.code = 'LOCAL_RELAY_UNAVAILABLE';
+          throw error;
+        }
         const connectionError = fail('浏览器无法连接 API；可能是 API 供应商或其网关未允许跨域（CORS）。请联系供应商，允许当前网页来源、Content-Type / Authorization 请求头及 OPTIONS 预检；同时检查网络、API 地址和 HTTPS 配置。');
         connectionError.code = 'NETWORK_OR_CORS';
         throw connectionError;
@@ -228,5 +275,5 @@
     }
   }
 
-  root.FlowSketchAIClient = Object.freeze({ endpoint, complete });
+  root.FlowSketchAIClient = Object.freeze({ endpoint, relayEndpoint, checkRelay, complete });
 })(typeof window !== 'undefined' ? window : globalThis);

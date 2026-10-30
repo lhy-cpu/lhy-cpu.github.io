@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   if(window.FlowSketchEditor.readonly) { $('aiBtn').hidden=true;$('aiPanel').hidden=true;return; }
   const storageKey = 'flowsketch-ai-settings-v1';
-  const defaults = {apiUrl:'',key:'',model:'',vision:false,stream:true,mode:'json',timeoutSeconds:180,historyTurns:24};
+  const defaults = {apiUrl:'',key:'',model:'',vision:false,stream:true,mode:'json',timeoutSeconds:180,historyTurns:24,connection:'direct',relayUrl:'http://127.0.0.1:18765',relayToken:''};
   const validTimeout = value => Number.isInteger(value)&&value>=10&&value<=3600;
   const validHistory = value => Number.isInteger(value)&&value>=1&&value<=100;
   let config = {...defaults}, turns = [], attachments = [], controller = null, busy = false;
@@ -74,7 +74,7 @@
   }
   function resetAssets() {assetRegistry.clear();}
   function stopRequest(reason) {if(busy){stopReason=reason;controller?.abort();}}
-  const settingsFields = ['aiUrl','aiKey','aiModel','aiVision','aiStream','aiMode','aiTimeout','aiHistory'];
+  const settingsFields = ['aiUrl','aiKey','aiModel','aiVision','aiStream','aiMode','aiTimeout','aiHistory','aiConnection','aiRelayUrl','aiRelayToken'];
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
     if(saved) config = {
@@ -82,7 +82,9 @@
       model:typeof saved.model==='string'?saved.model:'', vision:saved.vision===true,
       stream:saved.stream!==false,mode:saved.mode==='tools'?'tools':'json',
       timeoutSeconds:validTimeout(saved.timeoutSeconds)?saved.timeoutSeconds:defaults.timeoutSeconds,
-      historyTurns:validHistory(saved.historyTurns)?saved.historyTurns:defaults.historyTurns
+      historyTurns:validHistory(saved.historyTurns)?saved.historyTurns:defaults.historyTurns,
+      connection:saved.connection==='local'?'local':'direct',
+      relayUrl:typeof saved.relayUrl==='string'?saved.relayUrl:defaults.relayUrl,relayToken:''
     };
   } catch { /* A blocked or empty local store still permits an in-memory session. */ }
   function fillSettings() {
@@ -90,9 +92,11 @@
     $('aiVision').checked=config.vision; $('aiStream').checked=config.stream; $('aiMode').value=config.mode;
     $('aiTimeout').value=config.timeoutSeconds;
     $('aiHistory').value=config.historyTurns;
+    $('aiConnection').value=config.connection;$('aiRelayUrl').value=config.relayUrl;$('aiRelayToken').value=config.relayToken;
     syncConfig();
   }
   function syncConfig() {
+    $('aiRelaySettings').hidden=config.connection!=='local';
     $('aiModelBadge').textContent=config.model ? `${config.model} · ${config.vision?'文字 + 图片':'文字'}`:'配置后开始创作';
     $('aiAttach').disabled=busy||!config.vision;
     $('aiAttach').title=config.vision?'添加参考图片（最多 4 张）':'请先启用模型支持图片输入';
@@ -105,25 +109,55 @@
     const historyValue=$('aiHistory').value.trim(),historyTurns=Number(historyValue);
     if(!historyValue||!validHistory(historyTurns))throw Error('上下文轮数必须填写 1–100 之间的整数。');
     config={apiUrl:$('aiUrl').value.trim(),key:$('aiKey').value.trim(),model:$('aiModel').value.trim(),
-      vision:$('aiVision').checked,stream:$('aiStream').checked,mode:$('aiMode').value,timeoutSeconds,historyTurns};
+      vision:$('aiVision').checked,stream:$('aiStream').checked,mode:$('aiMode').value,timeoutSeconds,historyTurns,
+      connection:$('aiConnection').value==='local'?'local':'direct',relayUrl:$('aiRelayUrl').value.trim(),relayToken:$('aiRelayToken').value.trim()};
     syncConfig();
-    try {localStorage.setItem(storageKey,JSON.stringify(config));$('aiConfigState').textContent='已存本机';$('aiSettingsStatus').textContent='';}
+    const {relayToken:sessionToken,...saved}=config;
+    try {localStorage.setItem(storageKey,JSON.stringify(saved));$('aiConfigState').textContent='已存本机';$('aiSettingsStatus').textContent='';}
     catch {$('aiConfigState').textContent='本地存储不可用';$('aiSettingsStatus').textContent='浏览器不允许本地存储，配置仅在本次页面会话有效。';}
   }
   function validateConfig() {
     window.FlowSketchAIClient.endpoint(config.apiUrl);
     if(!config.model) throw Error('请先填写模型名。');
     if(config.model.length>200) throw Error('模型名过长，请检查。');
+    if(config.connection==='local'){
+      window.FlowSketchAIClient.relayEndpoint(config.relayUrl);
+      if(!config.relayToken)throw Error('请先运行本地转发脚本，并粘贴启动口令。');
+    }
   }
   settingsFields.forEach(id => $(id).addEventListener('input',()=>{
+    if(['aiConnection','aiRelayUrl','aiRelayToken'].includes(id)){
+      relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=busy;$('aiRelayStatus').textContent='';
+    }
     try{readSettings();}catch(e){$('aiSettingsStatus').textContent=e.message;}
   }));
+  $('aiRelayGuide').onclick=()=>{if(!busy)window.FlowSketchEditor.openRelayHelp?.();};
+  let relayCheck=null;
+  $('aiRelayTest').onclick=async()=>{
+    if(busy||relayCheck)return;
+    try{readSettings();}catch(e){$('aiRelayStatus').textContent=e.message;return;}
+    const check=new AbortController();relayCheck=check;
+    const timer=setTimeout(()=>check.abort(),8000);
+    $('aiRelayTest').disabled=true;$('aiRelayStatus').textContent='正在连接本地服务；如浏览器询问访问权限，请允许…';
+    try{
+      await window.FlowSketchAIClient.checkRelay({...config},check.signal);
+      if(relayCheck===check)$('aiRelayStatus').textContent='本地服务连接成功。可以重新发送消息；上游 API 的可用性以实际请求为准。';
+    }catch(e){if(relayCheck===check)$('aiRelayStatus').textContent=e.message;}
+    finally{clearTimeout(timer);if(relayCheck===check){relayCheck=null;$('aiRelayTest').disabled=busy;}}
+  };
+  function openRelaySetup(){
+    if(busy)return;
+    $('aiConnection').value='local';readSettings();$('aiSettings').open=true;
+    $('aiRelayStatus').textContent='按说明运行本地服务，再粘贴自动生成的口令并测试连接。';
+    window.FlowSketchEditor.openRelayHelp?.();
+  }
   $('aiShowKey').onclick=()=>{
     const shown=$('aiKey').type==='password';$('aiKey').type=shown?'text':'password';
     $('aiShowKey').textContent=shown?'隐藏':'显示';$('aiShowKey').setAttribute('aria-label',shown?'隐藏 API Key':'显示 API Key');
   };
   $('aiSave').onclick=()=>{try{readSettings();validateConfig();$('aiSettings').open=false;}catch(e){$('aiSettingsStatus').textContent=e.message;}};
   $('aiForget').onclick=()=>{
+    relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=false;$('aiRelayStatus').textContent='';
     config={...defaults};fillSettings();$('aiKey').type='password';$('aiShowKey').textContent='显示';
     turns=[];attachments=[];targetIds=[];renderTargets();resetAssets();imageGeneration++;renderAttachments();
     try{localStorage.removeItem(storageKey);$('aiConfigState').textContent='仅存本机';$('aiSettingsStatus').textContent='本浏览器中的 API 配置已清除。';}
@@ -144,9 +178,11 @@
     if(event.key==='Escape'&&!busy)togglePanel(false);
   });
   function setBusy(value) {
+    if(value){relayCheck?.abort();relayCheck=null;}
     busy=value;$('aiSend').hidden=value;$('aiStop').hidden=!value;
     $('aiPrompt').disabled=value;$('aiClear').disabled=value;
-    [...settingsFields,'aiSave','aiForget'].forEach(id=>$(id).disabled=value);
+    [...settingsFields,'aiSave','aiForget','aiRelayGuide'].forEach(id=>$(id).disabled=value);
+    $('aiRelayTest').disabled=value||!!relayCheck;
     syncConfig();
     syncSelection();renderTargets();$('aiActivity').hidden=!value;
     if(!value)$('aiPrompt').focus();
@@ -427,7 +463,11 @@
       if(pending){pending.node.classList.remove('pending');if(pending.body.textContent==='正在思考…')pending.body.textContent='回复中断。';}
       const interrupted=/连接失败|流意外中断|缺少结束标记|Failed to fetch|network/i.test(e.message||'');
       const detail=timedOut?`请求超过 ${requestConfig.timeoutSeconds} 秒，已停止。`:signal.aborted?(stopReason==='document'?'已切换文件，停止当前生成。':'已停止生成。'):e instanceof SyntaxError?'AI 返回的编辑 JSON 无法解析，未应用本批修改。':interrupted?`${e.message} 页面总时限为 ${requestConfig.timeoutSeconds} 秒；也可检查上游或 Nginx 的 proxy_read_timeout，当前信息无法确定中断原因。`:e.message;
-      notice(detail+(applied?' 已完成的修改仍保留，可撤销。':''),!signal.aborted);
+      const failure=notice(detail+(applied?' 已完成的修改仍保留，可撤销。':''),!signal.aborted);
+      if(!signal.aborted&&['NETWORK_OR_CORS','LOCAL_RELAY_UNAVAILABLE'].includes(e.code)){
+        const setup=document.createElement('button');setup.type='button';setup.className='btn';
+        setup.textContent=e.code==='NETWORK_OR_CORS'?'使用本地转发':'检查本地转发设置';setup.onclick=openRelaySetup;failure.node.append(setup);
+      }
       $('aiStatus').textContent=timedOut?'已达请求总时限':signal.aborted?(stopReason==='document'?'文件切换 · 已停止':'已停止'):interrupted?'连接或上游回复中断':'请求失败';
       if(stopReason==='document')return;
       const retry=document.createElement('button');retry.className='btn';retry.textContent='重新发送这条消息';

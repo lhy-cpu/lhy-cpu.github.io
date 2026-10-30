@@ -18,6 +18,8 @@
 
 FlowSketch 会补齐部分缺省字段，但 AI 应尽量输出完整字段，以保证结果稳定。
 
+本规范描述供导入的完整项目 JSON，不是网页 AI 的编辑指令格式。网页 AI 使用 `operations` 或 `edit_canvas`，字段和预算以实时共享契约为准，见 [AI.md](AI.md)。本规范重点是如何构图并生成合法、可编辑的项目数据；网页操作与文件导出流程见 [README.md](README.md)。
+
 ## 顶层格式
 
 ```json
@@ -285,9 +287,13 @@ FlowSketch 会补齐部分缺省字段，但 AI 应尽量输出完整字段，�
 ```
 
 - `memberIds` 按引用存储成员；成员的 `groupId` 应等于组合 `id`。
+- 组合 ID 必须唯一；一个元素只能属于一个组合。组合是扁平关系，不支持把组合 ID 当作另一个组合的成员。
+- 成员仍使用画布绝对坐标；不要给组合添加 `x/y/w/h/rotation` 或再次套用坐标变换。`memberIds` 的顺序不是绘制顺序，实际图层顺序以 `elements` 为准。
 - 自动堆叠按 `elements` 的图层顺序从底到顶排列，以第一个成员为基准。
+- 生成 JSON 时先给成员填写最终所需的绝对 `x/y`；`autoStack` 是后续编辑行为的设置，不代替初始布局，不能把所有成员放在同一点等待导出器排版。
 - `stackX` 的正值向右，负值向左；`stackY` 的正值向上，负值向下，单位为像素。
 - 连接线不应作为组合成员；连接线仍可通过端点绑定跟随图形。
+- 用户要求可编辑 PPTX 时，尽量让每个组合的成员在 `elements` 中连续，不穿插外部对象，以同时保留组合与遮挡顺序。不要仅为避免提示改变用户要求的构图；遇到两者冲突应说明取舍，实际导出选项见 [README.md](README.md#文件导出与-pptx-兼容性)。
 
 ## 图片 `image`
 
@@ -295,11 +301,15 @@ FlowSketch 会补齐部分缺省字段，但 AI 应尽量输出完整字段，�
 
 | 字段 | 说明 |
 | --- | --- |
-| `src` | 图片 URL 或 `data:image/...;base64,...` Data URL。需要离线与导出稳定时优先 Data URL。 |
+| `src` | 合法的内嵌 `data:image/...` Data URL，或仓库中的安全 `assets/` 相对路径；普通图片不接受远程 HTTP(S) URL、`file://` 或含 `..` 的路径。 |
 | `fit` | `cover` 或 `contain`。界面默认 `cover`。 |
 | `text` | 可选图片底部说明；非空时编辑器显示深色字幕条。 |
+| `crop` | `null` 或 `{x,y,w,h}`，使用原图 0-1 归一化坐标；`x/y >= 0`、`w/h > 0`，且整个范围必须在图内。 |
+| `flipX` / `flipY` | 布尔值，分别水平、垂直翻转。 |
+| `transparentColor` | `null` 或 `#RRGGBB`；将与目标颜色相近的像素变透明，不是语义抠图。 |
+| `colorTolerance` | 0-255 的整数，默认 24；0 表示 RGB 精确匹配。 |
 
-AI 无法取得真实图片数据时，不要捏造 Base64。可使用用户提供的可访问图片 URL，或用带说明文字的 `basicShape` 作为占位符，并明确让后续流程替换。
+AI 无法取得真实图片数据时，不要捏造 Base64 或填入远程图片 URL；用带说明文字的 `basicShape` 占位，让用户通过网页导入真实图片。网页 AI 新增图片必须引用本次可信参考图的 `assetId`，不能直接提交 `src`；这与完整项目 JSON 中存储的 `src` 不同。Token 图片池化的 `colorImage` 有独立规则，不能据此放开普通图片的来源限制。
 
 ## Token 矩阵 `tokenGrid`
 
@@ -312,7 +322,7 @@ AI 无法取得真实图片数据时，不要捏造 Base64。可使用用户提�
   "x": 180,
   "y": 300,
   "w": 280,
-  "h": 36,
+  "h": 28,
   "rotation": 0,
   "opacity": 1,
   "visible": true,
@@ -331,7 +341,7 @@ AI 无法取得真实图片数据时，不要捏造 Base64。可使用用户提�
   "stackY": 12,
   "colorMode": "solid",
   "colorChannels": ["color"],
-  "cellColors": ["#e8f1fb"],
+  "cellColors": ["#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb"],
   "cellColorIndex": 0,
   "gradientEditLayer": 0,
   "gradientLayers": [{"tl":"#ffffff","tr":"#e8f1fb","bl":"#c8d9ee","br":"#f5f9ff"}],
@@ -351,6 +361,7 @@ AI 无法取得真实图片数据时，不要捏造 Base64。可使用用户提�
 - `cellW`、`cellH`: 4-200。
 - `gapX`、`gapY`、`extrude`、`stackX`、`stackY`: 0-200。
 - `token3d`: 是否绘制立体顶面和侧面。
+- 计算总尺寸时，非图片模式的 `layers = depthCount`，图片模式的 `layers = colorChannels.length`；`token3d: false` 时 `extrude` 按 0 计算，不增加边缘留白。
 - 总宽约为 `cols * cellW + (cols - 1) * gapX + extrude + (layers - 1) * stackX`。
 - 总高约为 `rows * cellH + (rows - 1) * gapY + extrude + (layers - 1) * stackY`。
 - AI 生成时应让 `w`、`h` 与上述总尺寸一致。
@@ -673,8 +684,9 @@ AI 生成图时建议直接从一个基础调色板取色，并保证同一语�
 - 所有元素的边界都在画布内，且给阴影和描边留有余量。
 - 文字与容器尺寸匹配，长文本已换行。
 - 图层顺序合理：背景在前、内容在后。
+- `groups[].memberIds` 与成员 `groupId` 双向一致，没有嵌套或重复归属；若目标是 PPTX，已尽量避免组员与外部对象交错。
 - 相同类别的颜色、字号、圆角、线宽和阴影一致。
-- 图片 `src` 是真实可访问 URL 或合法 Data URL。
+- 普通图片 `src` 是真实有效的内嵌 Data URL 或安全 `assets/` 路径，不是远程 URL；图片裁切范围在原图内。
 - Token 矩阵的 `w`、`h` 与行列、单元尺寸、间距和层叠参数一致。
 - 每个 `formula.latex` 都能被 KaTeX 正确解析，且公式容器有足够宽高。
 - 最终响应只包含 JSON 对象。

@@ -220,3 +220,61 @@ test('invalid UTF-8 is rejected and incomplete indexed calls are rejected', asyn
   const calls = Array.from({ length: 101 }, (_, i) => ({ id: 'a' + i, type: 'function', function: { name: 'draw', arguments: '{}' } }));
   await assert.rejects(request(client(async () => json(wire(null, 'tool_calls', calls)))), /数量超过限制/);
 });
+
+test('relay URL validation prevents forwarding API credentials to a remote helper', () => {
+  const api = client();
+  assert.equal(api.relayEndpoint('http://127.0.0.1:18765/'), 'http://127.0.0.1:18765');
+  assert.equal(api.relayEndpoint('http://localhost:1234'), 'http://localhost:1234');
+  for (const value of ['https://127.0.0.1:18765', 'http://example.test:18765', 'http://192.168.1.1',
+    'http://127.0.0.1.attacker.test', 'http://user:pass@localhost', 'http://localhost/proxy',
+    'http://localhost/?', 'http://localhost/#', 'file:///tmp/socket']) assert.throws(() => api.relayEndpoint(value));
+});
+
+test('local forwarding separates upstream credentials, local token and model payload', async () => {
+  const seen = [];
+  const api = client(async (url, options) => { seen.push({ url, ...options }); return json(wire()); });
+  const local = {...config, connection:'local', relayUrl:'http://127.0.0.1:18765', relayToken:'local-secret'};
+  await api.complete({config:local,messages:[]});
+  assert.equal(seen[0].url, 'http://127.0.0.1:18765/proxy');
+  assert.equal(seen[0].headers['X-FlowSketch-Target'], 'https://api.example/v1/chat/completions');
+  assert.equal(seen[0].headers['X-FlowSketch-Token'], 'local-secret');
+  assert.equal(seen[0].headers.Authorization, 'Bearer secret-key');
+  assert.equal(seen[0].targetAddressSpace, 'loopback');
+  assert.equal(seen[0].credentials, 'omit');
+  assert.equal(seen[0].redirect, 'error');
+  assert.equal(seen[0].body.includes('secret'), false);
+  await api.complete({config:{...local,connection:'direct'},messages:[]});
+  assert.equal(seen[1].url, 'https://api.example/v1/chat/completions');
+  assert.equal('X-FlowSketch-Token' in seen[1].headers, false);
+  assert.equal('X-FlowSketch-Target' in seen[1].headers, false);
+});
+
+test('relay health probe sends only local token and checks service identity', async () => {
+  const config = {relayUrl:'http://127.0.0.1:18765',relayToken:'local-secret',key:'never-send',apiUrl:'https://private.test'};
+  const api = client(async (url, options) => {
+    assert.equal(url, 'http://127.0.0.1:18765/health');
+    assert.deepEqual(plain(options.headers), {'X-FlowSketch-Token':'local-secret'});
+    assert.equal(options.targetAddressSpace, 'loopback');
+    return json({service:'flowsketch-local-relay',version:1});
+  });
+  assert.equal(await api.checkRelay(config), true);
+  await assert.rejects(client(async () => json({service:'other',version:1})).checkRelay(config), /不是兼容/);
+  await assert.rejects(client(async () => json({service:'flowsketch-local-relay',version:2})).checkRelay(config), /不是兼容/);
+  await assert.rejects(client(async () => new Response('',{status:403})).checkRelay(config), /来源及连接口令/);
+});
+
+test('local failures never fall back to direct API or leak credentials', async () => {
+  let count = 0;
+  const api = client(async () => { count++;throw Error('secret-key local-secret'); });
+  await assert.rejects(api.complete({config:{...config,connection:'local',relayToken:'local-secret'},messages:[]}), error => {
+    assert.equal(error.code, 'LOCAL_RELAY_UNAVAILABLE');
+    assert.match(error.message, /回环网络/);
+    assert.equal(error.message.includes('secret'), false);
+    return true;
+  });
+  assert.equal(count, 1);
+  for (const relayToken of ['', '\r\nsecret', 'a'.repeat(257)]) {
+    await assert.rejects(api.complete({config:{...config,connection:'local',relayToken},messages:[]}), /连接口令/);
+  }
+  assert.equal(count, 1);
+});

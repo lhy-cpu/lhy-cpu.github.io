@@ -18,6 +18,8 @@ You are a FlowSketch drawing agent. After receiving a user request:
 
 FlowSketch fills in some missing defaults, but an AI should emit complete fields whenever possible to keep rendering deterministic.
 
+This specification describes complete project JSON for import, not the browser AI edit protocol. The browser AI uses `operations` or `edit_canvas` under its live shared field contract and budgets; see [AI.md](AI.md). The focus here is composition and valid, editable project data. Browser workflows and file export belong in [README.en.md](README.en.md).
+
 ## Top-Level Format
 
 ```json
@@ -285,9 +287,13 @@ When a visible boundary is needed, use a rectangular `basicShape` with `dash: tr
 ```
 
 - `memberIds` contains element references; every member's `groupId` should equal the group `id`.
+- Group IDs must be unique and each element may belong to only one group. Groups are flat: do not reference another group ID as a member.
+- Members retain absolute canvas coordinates. Do not add group-level `x/y/w/h/rotation` or apply another transform. Drawing order follows `elements`, not the order of `memberIds`.
 - Automatic stacking follows the back-to-front order in `elements`, using the first member as the anchor.
+- Give members their intended absolute `x/y` positions in generated JSON. `autoStack` configures later editing behavior; it does not replace initial layout. Do not place all members at one position and expect export to lay them out.
 - Positive `stackX` moves right and negative values move left. Positive `stackY` moves up and negative values move down.
 - Do not put connectors in a true group. Bound connectors can still follow their endpoint elements.
+- When the user requests editable PPTX, keep each group's members contiguous in `elements` where possible to retain grouping and occlusion together. Do not change the requested composition merely to avoid a prompt; explain any tradeoff. Export options belong in [README.en.md](README.en.md#file-export-and-pptx-compatibility).
 
 ## Images: `image`
 
@@ -295,11 +301,15 @@ Images add these fields to the common element fields:
 
 | Field | Description |
 | --- | --- |
-| `src` | An image URL or a `data:image/...;base64,...` Data URL. Prefer a Data URL for stable offline use and export. |
+| `src` | A valid embedded `data:image/...` Data URL or a safe repository-relative `assets/` path. Ordinary images do not accept remote HTTP(S) URLs, `file://`, or paths containing `..`. |
 | `fit` | `cover` or `contain`. The editor defaults to `cover`. |
 | `text` | Optional bottom caption. A non-empty value displays a dark caption strip in the editor. |
+| `crop` | `null` or `{x,y,w,h}` in original-image 0-1 coordinates: `x/y >= 0`, `w/h > 0`, and the entire rectangle must stay inside the image. |
+| `flipX` / `flipY` | Booleans for horizontal and vertical flipping. |
+| `transparentColor` | `null` or `#RRGGBB`. Makes pixels near the selected color transparent; this is not semantic background removal. |
+| `colorTolerance` | Integer from 0 to 255, default 24. Zero means an exact RGB match. |
 
-If an AI does not have real image data, it must not invent Base64 content. Use a user-provided accessible image URL, or create a labeled `basicShape` placeholder and make it clear that a later step must replace it.
+If real image data is unavailable, do not invent Base64 or use a remote image URL. Create a labeled `basicShape` placeholder and let the user import an actual image. Browser AI image additions must reference a trusted current `assetId`, not submit `src` directly; this differs from the `src` stored in complete project JSON. Token image pooling has separate `colorImage` rules that do not relax the ordinary-image source policy.
 
 ## Token Matrices: `tokenGrid`
 
@@ -312,7 +322,7 @@ Use token matrices to represent sequences, feature maps, model tokens, matrices,
   "x": 180,
   "y": 300,
   "w": 280,
-  "h": 36,
+  "h": 28,
   "rotation": 0,
   "opacity": 1,
   "visible": true,
@@ -331,7 +341,7 @@ Use token matrices to represent sequences, feature maps, model tokens, matrices,
   "stackY": 12,
   "colorMode": "solid",
   "colorChannels": ["color"],
-  "cellColors": ["#e8f1fb"],
+  "cellColors": ["#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb", "#e8f1fb"],
   "cellColorIndex": 0,
   "gradientEditLayer": 0,
   "gradientLayers": [{"tl":"#ffffff","tr":"#e8f1fb","bl":"#c8d9ee","br":"#f5f9ff"}],
@@ -351,6 +361,7 @@ Use token matrices to represent sequences, feature maps, model tokens, matrices,
 - `cellW`, `cellH`: 4-200.
 - `gapX`, `gapY`, `extrude`, `stackX`, `stackY`: 0-200.
 - `token3d`: Whether to draw 3D top and side faces.
+- For total dimensions, use `layers = depthCount` outside image mode and `layers = colorChannels.length` in image mode. Treat `extrude` as 0 when `token3d: false`; it adds no edge margin in that case.
 - Approximate total width: `cols * cellW + (cols - 1) * gapX + extrude + (layers - 1) * stackX`.
 - Approximate total height: `rows * cellH + (rows - 1) * gapY + extrude + (layers - 1) * stackY`.
 - The AI should set `w` and `h` to match those total dimensions.
@@ -673,8 +684,9 @@ Before returning the final JSON, confirm all of the following:
 - Every element boundary is inside the canvas with room for shadows and outlines.
 - Text fits its container, and long labels use line breaks.
 - Layer ordering is correct: backgrounds first, content later.
+- `groups[].memberIds` and member `groupId` agree in both directions, with no nesting or multiple memberships. For PPTX, avoid interleaving group members with outside objects where possible.
 - Elements with the same semantic role use consistent colors, font sizes, radii, line widths, and shadows.
-- Every image `src` is a real accessible URL or a valid Data URL.
+- Ordinary image `src` values are real embedded Data URLs or safe `assets/` paths, not remote URLs. Crop rectangles stay inside the original image.
 - Token matrix `w` and `h` match its rows, columns, cell dimensions, spacing, and layer offsets.
 - Every `formula.latex` value parses successfully in KaTeX, and its container is large enough.
 - The final response contains only the JSON object.

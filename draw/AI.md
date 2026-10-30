@@ -29,11 +29,11 @@ AI 图片操作：`add` 的 `type:"image"` 必须提供本次参考图的 `asset
 
 ## 超时、缓存和 CORS 排查
 
-发送时显示「已用 N 秒 / 上限 M 秒」，使用该次发送时的超时设置。300 秒是从开始请求到最终回复的整轮总时限，包括连接等待与连续工具请求；API 后台的单段流式生成时长可能更短，两者不一定是同一个计时区间。收到有效 `[DONE]` 后立即完成，无需继续等待 HTTP 连接关闭。提前断流会显示中断说明，不会误报为本地超时。
+发送时显示「已用 N 秒 / 上限 M 秒」，使用该次发送时的超时设置。例如设为 300 秒时，这是从开始请求到最终回复的整轮总时限，包括连接等待与连续工具请求，不是默认值；默认仍为 180 秒。API 后台的单段流式生成时长可能更短，两者不一定是同一个计时区间。收到有效 `[DONE]` 后立即完成，无需继续等待 HTTP 连接关闭。提前断流会显示中断说明，不会误报为本地超时。
 
-连接建立失败会及时提示可能的 CORS，并说明应让 API 供应商或其网关允许当前网页来源、`Content-Type` / `Authorization` 和 `OPTIONS` 预检。浏览器不会把 CORS、DNS、证书或断网的确切原因交给网页 JS，因此不会把所有连接失败都断言为 CORS。具体原因需查看浏览器控制台或 API 网关日志。
+直连建立失败会提示可能的 CORS，并提供「使用本地转发」按钮打开居中的帮助弹窗。可让 API 供应商或其网关允许当前网页来源、`Content-Type` / `Authorization` 和 `OPTIONS` 预检，也可按下节使用本机转发。浏览器不会把 CORS、DNS、证书或断网的确切原因交给网页 JS，因此不会把所有连接失败都断言为 CORS。具体原因需查看浏览器控制台或 API 网关日志。
 
-前端资源带版本查询参数，具体值见 `index.html`，AI 输入框下方显示版本号；部署时同时更新 `index.html`、`assets/js/` 和 `assets/css/`。旧标签页需要重新载入。建议在绘图网站的 Nginx 配置中给入口 HTML 设置重新验证缓存（合入已有 location，不要覆盖原配置）：
+前端资源带版本查询参数，具体值见 `index.html`，AI 输入框下方显示版本号；部署时同时更新 `index.html`、`assets/js/`、`assets/css/`、`assets/vendor/` 和 `tools/local-relay/` 下的三个独立服务文件。旧标签页需要重新载入。建议在绘图网站的 Nginx 配置中给入口 HTML 设置重新验证缓存（合入已有 location，不要覆盖原配置）：
 
 ```nginx
 location = /index.html {
@@ -50,13 +50,43 @@ proxy_read_timeout 600s;
 
 `proxy_read_timeout` 限制两次上游读取之间的等待时间，并不是整个流式回复的总时长；页面设置不能提高 API 供应商、其他代理或 CDN 的限制。这里未修改服务器配置。参考：[Nginx proxy_read_timeout / proxy_buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout)、[Nginx add_header](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header)。
 
-## 本地存储和直连
+## 可选本地转发
 
-API 设置仅保存在当前浏览器、当前站点的 `localStorage` 中（`flowsketch-ai-settings-v1`），与画布项目存储完全分开，不写入项目 JSON、SVG、PNG，也不上传网页服务器。对话记录和参考图片仅留在当前页面内存中，刷新后消失。发送请求时，浏览器直接把对话、画布结构、附加图片发送到配置的接口；Key 仅作为该接口的 `Authorization` 头。没有服务端代理、遥测或第三方脚本。支持清除配置。
+默认使用「直连接口」。遇到网络/CORS 失败时点击「使用本地转发」，或从 AI 设置打开下载帮助，会显示与「FlowSketch 使用帮助」相同形式的居中弹窗。弹窗按当前系统自动选中 Windows、macOS 或 Linux 标签，也可手动切换：
 
-接口必须允许页面来源的 CORS 请求，包括 `Content-Type` 和（填写 Key 时的）`Authorization` 请求头。HTTPS 页面连接普通 HTTP 接口也可能被浏览器拦截。不同域名、端口或 `file://` 页面的浏览器存储相互独立；建议固定本地访问地址。浏览器禁用本地存储时，AI 设置仅在当前页面有效。
+1. 在对应系统标签按已有运行环境下载**一个独立服务文件**，在下载目录打开终端；也可使用下方 Python 免下载方案。
+2. 复制弹窗给出的启动命令。来源须精确匹配当前网页的协议、主机和端口，不含路径或末尾 `/`。以下以 `https://draw.lhye.work` 为例，实际运行时换成弹窗显示的来源；`file://` 页面使用 `null`：
 
-单次对话最多连续调用 8 轮接口，超时使用本次发送时的设置（默认 180 秒）；按设置发送最近 1～100 轮会话（默认 24），每批最多 100 项操作。新建元素预算 500 个，Token 总绘制单元预算 10000 个；手工创建的既有超额项目仍可在不增加超额规模的情况下编辑。
+   | 系统 / 已有环境 | 单文件下载 | 启动命令 |
+   | --- | --- | --- |
+   | Windows 系统 PowerShell/.NET | [server.ps1](tools/local-relay/server.ps1) | `powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1 --origin https://draw.lhye.work` |
+   | macOS/Linux 或已有 Node.js | [server.cjs](tools/local-relay/server.cjs) | `node ./server.cjs --origin https://draw.lhye.work` |
+   | 没有 Node.js，但有 Python 3 | [server.py](tools/local-relay/server.py) | `python3 ./server.py --origin https://draw.lhye.work`（Windows 可用 `py -3` 代替 `python3`） |
+
+3. 服务自行生成本次启动令牌，无需在命令中设置。保持终端运行，把终端输出的令牌粘贴到 AI 设置；选择「本地转发」，填写回环地址（默认 `http://127.0.0.1:18765`），点击「测试本地连接」。测试仅访问服务的 `GET /health`，不会调用模型。
+4. API URL、Key 和模型仍填写原供应商配置；转发地址单独设置，不要用它替换 API URL。测试成功后发送消息，结束使用时在终端按 `Ctrl+C` 停止服务。更换网页来源后须重启服务。
+
+**Python 免下载运行**：已有 Python 3 时，在弹窗展开该选项，查看并复制包含完整服务源码的文本，直接粘贴到对应终端运行，无需下载或保存文件。macOS/Linux 文本使用 `python3 - --origin 当前来源` 和 here-document；Windows 文本使用 PowerShell here-string 管道到 `py -3 - --origin 当前来源`，请在对应 shell 中执行。页面仅在展开 Python 免下载区域时从当前托管来源读取 `server.py` 纯文本，不在网页内执行代码。直接打开 `file://` 时浏览器可能禁止读取文本，此时弹窗会提示改用单文件下载。
+
+三个文件各自独立运行，不自动选择运行环境或安装软件。服务只监听本机回环地址，并校验精确网页来源和随机启动令牌；网页只接受回环转发地址。粘贴的令牌仅留在当前页面内存，刷新页面或重启服务后需重新填写，不写入 `localStorage` 或项目。
+
+HTTPS 网页可以访问 HTTP 回环地址 `127.0.0.1`。浏览器可能询问本地网络/回环访问权限，需允许当前绘图站点访问本机工具；浏览器版本、组织策略或站点 CSP 的 `connect-src` 仍可能阻止连接。普通公网 HTTP 页面也可能没有申请该权限所需的安全上下文，优先使用 HTTPS 站点或本机静态页面。无需关闭浏览器安全机制或安装证书；参考 [Chrome 官方 Local Network Access 说明](https://developer.chrome.com/docs/modern-web-guidance/guides/security/local-network-access)。
+
+## 本地存储和请求流向
+
+API 设置仅保存在当前浏览器、当前站点的 `localStorage` 中（`flowsketch-ai-settings-v1`），与画布项目存储完全分开，不写入项目 JSON、SVG、PNG，也不上传网页服务器。对话记录和参考图片仅留在当前页面内存中，刷新后消失。默认直连时，浏览器把对话、画布结构、附加图片直接发送到配置的接口；Key 作为该接口的 `Authorization` 头。选择本地转发时，同样的请求内容、目标 API URL 和 Key 会先交给本机工具，再由它向配置的 API 发出 POST 并转发 JSON/SSE 响应，不经过网页托管服务器。两种方式均不发送 Cookie 或 Referer，拒绝 HTTP 重定向；本机工具不将启动令牌发给上游。项目没有遥测或第三方脚本。支持清除配置。
+
+直连时，跨源接口须允许页面来源的 CORS 请求，包括 `Content-Type` 和（填写 Key 时的）`Authorization` 请求头；HTTPS 页面连接普通非回环 HTTP 接口也可能被浏览器拦截。本地转发由本机工具请求上游，不要求上游对网页开放 CORS，但上游可达性、鉴权与服务限制仍然适用。不同域名、端口或 `file://` 页面的浏览器存储相互独立；建议固定本地访问地址。浏览器禁用本地存储时，AI 设置仅在当前页面有效。
+
+单次对话最多连续调用 8 轮接口，超时使用本次发送时的设置（默认 180 秒）；按设置发送最近 1～100 轮会话（默认 24），每批最多 100 项操作。编辑后总元素数、总组合数各有 500 个的预算，Token 总绘制单元预算为 10000 个；手工创建的既有超额项目可在不增加各项超额规模的情况下继续编辑。这不是每批可额外新增 500 个元素。
+
+## 项目 JSON 与文件导出
+
+[draw.md](draw.md)（[English](draw.en.md)）描述可导入的完整项目 JSON；网页 AI 则提交 `operations` 或调用 `edit_canvas`，不得把完整项目对象直接当作编辑工具参数。新增图片继续使用本次可信参考图 `assetId`，而不是完整项目文件中的 `src`。
+
+AI 编辑成功仅表示画布已修改，不代表已经下载 JSON、SVG、PNG 或 PPTX。文件导出入口与备份规则见 [文件导出规则](README.md#文件导出与-pptx-兼容性)。支持的公式可转成原生 Office Math，不支持的结构回退为图片；圆角、外阴影、四角渐变纹理和原生组合的兼容性见 [PPTX 导出与兼容性](README.md#文件导出与-pptx-兼容性)。
+
+生成组合时，`groups[].memberIds` 与成员 `groupId` 必须双向一致；尽量让同组元素在 `elements` 中连续。若组合与外部对象交错，网页会让用户选择「合并组合，保留层级」「保留组合，允许层级错位」或取消。选择只影响该次导出的 PPTX，不改画布；AI 不应替用户预选，也不能声称跨组交错层级与原组合一定能同时保真。
 
 协议依据：[OpenAI 官方 Chat Completions 文档](https://developers.openai.com/api/reference/resources/chat)。兼容接口是否支持图片、流式和工具调用取决于服务与模型本身。
 
@@ -66,6 +96,12 @@ AI 脚本位于 `assets/js/`，样式位于 `assets/css/ai.css`；第三方库�
 
 运行 `node --test tests/*.test.cjs`。定向测试覆盖提示词示例与真实校验器的一致性、字段类型与数值边界、工具参数约束、超时设置与取消、历史窗口与工具回合，以及新版公式、渐变、组合与连线、跨文件指纹与异步切换保护、渲染失败回滚、编辑原子性、不安全字段、连接线绑定、Token 预算、图片保留、图片上下文排除、URL 规范化、鉴权请求边界、JSON/SSE、UTF-8 分块、工具参数聚合、中断与错误。
 
-本轮 92 项测试通过。浏览器实测覆盖图片裁切拖柄、原图取色、颜色透明、撤销/重做、持久化、原生导入纵横比、双击打开编辑、窄屏布局、参考图 AI 新增裁切素材、300 秒状态与停止、CORS 提示及收到结束标记后立即收尾。实际导出 SVG 的内嵌 PNG 和 PPTX 图片均具有透明像素；PNG 像素检查确认目标红色已移除，黄/蓝/绿保留。使用的是本地模拟接口，未调用真实供应商接口。
+静态部署时保留 `tools/local-relay/server.ps1`、`server.cjs` 和 `server.py` 的相对路径，供设置面板直接下载；无需打包步骤。
+
+历史浏览器实测覆盖图片裁切拖柄、原图取色、颜色透明、撤销/重做、持久化、原生导入纵横比、双击打开编辑、窄屏布局、参考图 AI 新增裁切素材、300 秒状态与停止、CORS 提示及收到结束标记后立即收尾。实际导出 SVG 的内嵌 PNG 和 PPTX 图片均具有透明像素；PNG 像素检查确认目标红色已移除，黄/蓝/绿保留。使用的是本地模拟接口，未调用真实供应商接口。历史测试数量不代表当前套件规模，以运行上述命令的结果为准。
 
 此前本地模拟接口浏览器验证覆盖新版公式、大括号、四角渐变、彩色 Token 和组合，文件库持久化、切换文件取消请求、预览只读，以及流式生成三节点与连接线、撤销/重做、工具调用及后续回复、HTTP 错误、停止请求、手动编辑冲突、设置持久化、图片输入开关与响应式布局。模拟测试验证前端链路；真实服务和模型效果需使用自己的配置验证。
+
+本地转发的自动化检查不等同于 Windows/macOS/Linux 独立服务及各浏览器权限弹窗的原生实测；真实 API、系统环境和浏览器策略需另行验证。
+
+2026-10-30 的本机浏览器 → macOS PowerPoint 实测另覆盖原生公式编辑状态、圆角、渐变纹理、外阴影、原生组合及两种冲突处理导出；这与 AI 模拟接口测试是不同的验证链路，不代表其他 Office/WPS/Keynote 平台已验收。

@@ -55,11 +55,11 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
     setInterval: (callback, delay) => {const interval={callback,delay};intervals.push(interval);return interval;},
     clearInterval: interval => clearedIntervals.push(interval),
     window: {
-      FlowSketchEditor: { readonly: false, assertEditable() {}, fingerprint: () => options.fingerprint?.()??'same', snapshot: () => options.snapshot?.()??({}), apply: (...args) => {applications.push(args);return apply(...args);}, capture: (...args) => {captures.push(args);return options.capture?options.capture(...args):Promise.reject(Error('capture unavailable'));}, fit() {} },
+      FlowSketchEditor: { openRelayHelp: () => options.openRelayHelp?.(), readonly: false, assertEditable() {}, fingerprint: () => options.fingerprint?.()??'same', snapshot: () => options.snapshot?.()??({}), apply: (...args) => {applications.push(args);return apply(...args);}, capture: (...args) => {captures.push(args);return options.capture?options.capture(...args):Promise.reject(Error('capture unavailable'));}, fit() {} },
       FlowSketchAIEngine: { describe: snapshot => snapshot },
       FlowSketchAIPrompts: { tool: () => ({}), tools: vision => [{function:{name:'edit_canvas'}},...(vision?[{function:{name:'view_canvas'}},{function:{name:'view_reference'}}]:[])], instructions: (...args) => {instructions.push(args);return 'instructions';} },
       FlowSketchAIPreview: {bind:(img,opts)=>{img.previewOptions=opts;},crop:(img,region)=>options.crop?options.crop(img,region):({url:'data:image/png;base64,crop',width:20,height:10,sourceWidth:img.naturalWidth,sourceHeight:img.naturalHeight,region:region||{x:0,y:0,w:img.naturalWidth,h:img.naturalHeight}})},
-      FlowSketchAIClient: { endpoint() {}, complete: options => { calls.push(options); return complete(options); } },
+      FlowSketchAIClient: { endpoint() {}, relayEndpoint() {}, checkRelay: (...args) => options.checkRelay?.(...args)??Promise.resolve(true), complete: options => { calls.push(options); return complete(options); } },
     },
   };
   vm.runInNewContext(source, context, { filename: 'assets/js/ai.js' });
@@ -560,4 +560,67 @@ test('manual crop replaces the pending original and passes only cropped pixels a
 test('two reference crops in the same assistant batch both reach the next API request',async()=>{
   let step=0;const sent=[],h=harness({...configured,vision:true,mode:'tools'},async options=>{sent.push(JSON.parse(JSON.stringify(options.messages)));return step++?{content:'完成'}:{content:'查看两处',tool_calls:[10,40].map((x,i)=>({id:'crop'+i,function:{name:'view_reference',arguments:JSON.stringify({assetId:'ref_1',region:{x,y:0,w:20,h:20}})}}))};},()=>({}),[100,80],{snapshot:()=>({elements:[]}),crop:(img,region)=>({url:'data:image/png;base64,local'+region.x,width:20,height:20,sourceWidth:100,sourceHeight:80,region})});
   await h.addImage();await h.send('比较两个区域');assert.deepEqual(transmittedImages(sent[1]),['data:image/png;base64,local10','data:image/png;base64,local40']);
+});
+
+test('relay connection preferences persist while the startup token remains session-only', async () => {
+  const h = harness({...configured,connection:'local',relayUrl:'http://127.0.0.1:19999',relayToken:'old-token'});
+  assert.equal(h.get('aiConnection').value,'local');
+  assert.equal(h.get('aiRelayUrl').value,'http://127.0.0.1:19999');
+  assert.equal(h.get('aiRelayToken').value,'');
+  h.get('aiRelayToken').value='new-token';h.get('aiRelayToken').emit('input');
+  const saved = JSON.parse(h.stored.get(storageKey));
+  assert.equal(saved.connection,'local');
+  assert.equal('relayToken' in saved,false);
+  await h.send();
+  assert.equal(h.calls[0].config.relayToken,'new-token');
+  h.get('aiForget').onclick();
+  assert.equal(h.get('aiRelayToken').value,'');
+  assert.equal(h.get('aiConnection').value,'direct');
+});
+
+test('CORS failure offers local setup and preserves original retry content without auto-resending', async () => {
+  let guides = 0;
+  const h = harness(configured, async () => { const error = Error('possible CORS');error.code='NETWORK_OR_CORS';throw error; },undefined,undefined,{openRelayHelp:()=>guides++});
+  await h.send('keep my request');
+  const failure = h.get('aiMessages').lastElementChild;
+  const setup = failure.children.find(child=>child.textContent==='使用本地转发');
+  assert.ok(setup);
+  setup.onclick();
+  assert.equal(h.get('aiConnection').value,'local');
+  assert.equal(h.get('aiRelaySettings').hidden,false);
+  assert.equal(h.get('aiSettings').open,true);
+  assert.equal(guides,1);
+  assert.equal(h.calls.length,1);
+  failure.children.find(child=>child.textContent==='重新发送这条消息').onclick();
+  assert.equal(h.get('aiPrompt').value,'keep my request');
+});
+
+test('relay health checks run only on user action and do not send a model request', async () => {
+  let healthCalls=0;
+  const h = harness({...configured,connection:'local'},undefined,undefined,undefined,{checkRelay:async config=>{
+    healthCalls++;assert.equal(config.relayToken,'session-token');
+  }});
+  assert.equal(healthCalls,0);
+  h.get('aiRelayToken').value='session-token';
+  await h.get('aiRelayTest').onclick();
+  assert.equal(healthCalls,1);
+  assert.equal(h.calls.length,0);
+  assert.match(h.get('aiRelayStatus').textContent,/连接成功/);
+  assert.equal(h.get('aiRelayTest').disabled,false);
+});
+
+test('editing relay configuration cancels a stale in-flight connection test', async () => {
+  let signal, release;
+  const pendingHealth = new Promise(resolve=>{release=resolve;});
+  const h = harness({...configured,connection:'local'},undefined,undefined,undefined,{checkRelay:async (_config, checkSignal)=>{
+    signal=checkSignal;await pendingHealth;
+  }});
+  h.get('aiRelayToken').value='first-token';
+  const check = h.get('aiRelayTest').onclick();
+  assert.equal(h.get('aiRelayTest').disabled,true);
+  h.get('aiRelayToken').value='changed-token';h.get('aiRelayToken').emit('input');
+  assert.equal(signal.aborted,true);
+  assert.equal(h.get('aiRelayTest').disabled,false);
+  release();await check;
+  assert.equal(h.get('aiRelayStatus').textContent,'');
 });
