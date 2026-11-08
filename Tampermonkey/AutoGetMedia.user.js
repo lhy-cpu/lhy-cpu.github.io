@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AutoGetMedia
 // @namespace    https://lhy-cpu.github.io
-// @version      0.1.1
-// @description  拦截网络请求，并筛选出其中的媒体文件（视频、音频等），类似控制台的网络面板功能。(Beta)
+// @version      0.2.0
+// @description  拦截网络请求，并筛选出其中的媒体文件（视频、音频等），支持 HLS/m3u8 清单识别、分片下载及合并。(Beta)
 // @author       lhy-cpu
 // @match        *://*/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -12,6 +12,7 @@
 // @grant        GM_xmlhttpRequest
 // @connect *
 // @run-at       document-start
+// @sandbox      raw
 // @updateURL    https://lhy-cpu.github.io/Tampermonkey/AutoGetMedia.user.js
 // @downloadURL  https://lhy-cpu.github.io/Tampermonkey/AutoGetMedia.user.js
 // @homepage     https://lhy-cpu.github.io/Tampermonkey/index.html
@@ -22,6 +23,12 @@
 
     // 存储抓取到的媒体链接
     const mediaUrls = new Set();
+    const mediaInfo = new Map();
+    const hlsMime = /(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)/i;
+    // 必须在可能同步调用 initUI() 之前初始化。
+    let agmContainer = null;
+    let agmList = null;
+    let agmCount = null;
 
     // 常见的媒体文件扩展名正则 (匹配 .mp4, .m3u8, .ts, .mp3, .webm 等)
     const mediaExtensions = /\.(mp4|webm|ogg|mp3|wav|flac|aac|m3u8|ts|m4s)$/i;
@@ -44,35 +51,57 @@
         return GM_getValue(blockKey, false);
     }
 
-    /**
-     * 检查并记录媒体 URL
-     * @param {string} url - 需要检查的网址
-     * @returns {boolean} 如果开启了阻断且匹配为媒体资源，则返回 true
-     */
-    function checkUrl(url) {
-        if (!url || typeof url !== 'string') return false;
-        if (url.startsWith('chrome-extension://')) return false; // 忽略扩展程序请求
-        
-        const isNew = !mediaUrls.has(url);
+    function normalizeUrl(value, base = document.baseURI) {
+        try {
+            const url = new URL(value, base);
+            return /^(https?:)$/.test(url.protocol) ? url.href : null;
+        } catch (e) { return null; }
+    }
 
-        // 去掉查询参数及哈希部分，只保留 path 以匹配后缀名
-        const urlWithoutQuery = url.split('?')[0].split('#')[0];
+    function isHlsUrl(url) {
+        return /\.m3u8(?:$|[?#])/i.test(url);
+    }
 
-        // 根据 URL 后缀或特征判断是否为媒体文件
-        if (mediaExtensions.test(urlWithoutQuery)) {
-            if (isNew) {
-                mediaUrls.add(url);
-                console.log('%c[AutoGetMedia] 抓取到媒体资源: ' + url, 'color: #00ff00; font-weight: bold; background: #333; padding: 2px 4px; border-radius: 3px;');
-                if (window.top === window.self) {
-                    if (typeof updateUI === 'function') updateUI(url);
-                } else {
-                    // 如果在 iframe 中，将链接发送给顶层主页面
-                    window.top.postMessage({ type: 'AutoGetMedia_NEW_URL', url: url }, '*');
-                }
-            }
-            return isBlockEnabled(); // 如果开启了阻断则返回 true 给拦截器
+    // 记录媒体及其来源页；返回是否需要阻断页面直连请求。
+    function checkUrl(value, hls = false, referer = window.location.href) {
+        if (typeof value !== 'string') return false;
+        const url = normalizeUrl(value);
+        if (!url) return false;
+        const previous = mediaInfo.get(url);
+        if (!hls && !(previous && previous.hls) && !mediaExtensions.test(new URL(url).pathname)) return false;
+        const info = { hls: hls || isHlsUrl(url) || !!(previous && previous.hls), referer };
+        mediaInfo.set(url, info);
+        if (!mediaUrls.has(url)) {
+            mediaUrls.add(url);
+            console.log('[AutoGetMedia] 抓取到媒体资源:', url);
+            if (window.top === window.self) updateUI(url);
         }
-        return false;
+        if (window.top !== window.self && (!previous || previous.hls !== info.hls)) {
+            window.top.postMessage({ type: 'AutoGetMedia_NEW_URL', url, hls: info.hls, referer }, '*');
+        }
+        return isBlockEnabled();
+    }
+
+    // 仅查看文本或 HLS 响应，避免为普通视频复制、读取整个二进制响应。
+    async function inspectFetchResponse(response, requestUrl) {
+        const type = response.headers.get('content-type') || '';
+        const url = response.url || requestUrl;
+        if (hlsMime.test(type)) { checkUrl(url, true); return; }
+        if ((type && !/^(text\/|application\/(?:octet-stream|x-mpegurl))/i.test(type)) || !response.body) return;
+        const reader = response.clone().body.getReader();
+        const decoder = new TextDecoder();
+        let prefix = '';
+        try {
+            // 只需识别清单开头，不缓存正文；clone 的取消不等待原流结束。
+            while (prefix.length < 64) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                prefix += decoder.decode(value.subarray(0, 256), { stream: true });
+                const start = prefix.replace(/^\uFEFF/, '').trimStart();
+                if (start.length >= 7 || !'#EXTM3U'.startsWith(start)) break;
+            }
+            if (prefix.replace(/^\uFEFF/, '').trimStart().startsWith('#EXTM3U')) checkUrl(url, true);
+        } finally { reader.cancel().catch(() => {}); }
     }
 
     /**
@@ -82,7 +111,7 @@
     window.fetch = async function(...args) {
         try {
             const request = args[0];
-            const url = typeof request === 'string' ? request : (request && request.url);
+            const url = request instanceof URL ? request.href : (typeof request === 'string' ? request : (request && request.url));
             if (checkUrl(url)) {
                 console.warn('%c[AutoGetMedia] ⚡ 已阻断 Fetch 请求: ' + url, 'color: #ff5252; background: #333; font-weight: bold; padding: 2px 4px;');
                 return Promise.reject(new Error('Blocked by AutoGetMedia (Fetch)'));
@@ -90,7 +119,11 @@
         } catch (e) {
             console.error('[AutoGetMedia] Fetch拦截报错', e);
         }
-        return originalFetch.apply(this, args);
+        const response = await originalFetch.apply(this, args);
+        const request = args[0];
+        const requestUrl = request instanceof URL ? request.href : (typeof request === 'string' ? request : request && request.url);
+        inspectFetchResponse(response, normalizeUrl(requestUrl)).catch(() => {});
+        return response;
     };
 
     /**
@@ -100,8 +133,20 @@
     const originalXhrSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url, ...rest) {
         try {
-            this._agmUrl = url;
-            if (checkUrl(url)) {
+            this._agmUrl = String(url);
+            this._agmBlocked = false;
+            if (!this._agmListening) {
+                this._agmListening = true;
+                this.addEventListener('load', () => {
+                    try {
+                        const type = this.getResponseHeader('Content-Type') || '';
+                        const hls = hlsMime.test(type) || ((!this.responseType || this.responseType === 'text') &&
+                            this.responseText.slice(0, 256).replace(/^\uFEFF/, '').trimStart().startsWith('#EXTM3U'));
+                        checkUrl(this.responseURL || this._agmUrl, hls);
+                    } catch (e) { /* 非文本响应不能读取 responseText。 */ }
+                });
+            }
+            if (checkUrl(String(url))) {
                 this._agmBlocked = true; // 命中匹配并且当前开启了拦截
             }
         } catch (e) {
@@ -140,7 +185,7 @@
             });
         });
         // 监听资源加载
-        observer.observe({ entryTypes: ['resource'] });
+        observer.observe({ type: 'resource', buffered: true });
     }
 
     // 将抓取到的数据挂载到全局，方便在浏览器控制台(Console)里直接打印 `window.__MEDIA_URLS__` 查看
@@ -168,20 +213,21 @@
         // 监听来自 iframe 的消息，接收媒体链接
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'AutoGetMedia_NEW_URL') {
-                const url = event.data.url;
-                if (!mediaUrls.has(url)) {
-                    mediaUrls.add(url);
-                    if (typeof updateUI === 'function') updateUI(url);
-                }
+                // 只接受本页面的后代 frame；以消息来源确定防盗链页面。
+                let source = event.source;
+                try {
+                    while (source && source !== window && source.parent !== source) source = source.parent;
+                } catch (e) { return; }
+                if (source !== window || event.source === window) return;
+                let referer = /^https?:/.test(event.origin) ? event.origin + '/' : window.location.href;
+                const sourcePage = normalizeUrl(event.data.referer);
+                if (sourcePage && new URL(sourcePage).origin === event.origin) referer = sourcePage;
+                checkUrl(event.data.url, event.data.hls === true, referer);
             }
         });
     }
 
     // --- UI 渲染及交互逻辑 ---
-    let agmContainer = null;
-    let agmList = null;
-    let agmCount = null;
-
     function initUI() {
         if (agmContainer || document.getElementById('agm-container')) return;
         if (!document.body) return;
@@ -266,6 +312,8 @@
             });
         }
 
+        blockSwitch.closest('label').addEventListener('click', e => e.stopPropagation());
+
         // 绑定点击收起/展开事件
         header.addEventListener('click', () => {
             const isHidden = listWrapper.style.display === 'none';
@@ -285,6 +333,7 @@
         const a = document.createElement('a');
         a.href = url;
         a.target = '_blank';
+        a.rel = 'noopener noreferrer';
         a.style.cssText = 'color: #1a73e8 !important; text-decoration: none !important; display: block !important; overflow: hidden !important; text-overflow: ellipsis !important; display: -webkit-box !important; -webkit-line-clamp: 3 !important; -webkit-box-orient: vertical !important;';
         a.innerText = url;
         
@@ -305,68 +354,30 @@
         };
         
         const downloadBtn = document.createElement('button');
-        downloadBtn.innerText = '下载资源';
+        downloadBtn.innerText = ((mediaInfo.get(url) || {}).hls || isHlsUrl(url)) ? '下载媒体内容' : '下载资源';
         downloadBtn.style.cssText = 'border: 1px solid #1a73e8 !important; background: #e8f0fe !important; border-radius: 3px !important; cursor: pointer !important; padding: 2px 6px !important; font-size: 11px !important; color: #1a73e8 !important;';
+        const status = document.createElement('div');
+        status.style.cssText = 'color: #555 !important; margin-top: 4px !important; font-size: 11px !important; white-space: pre-wrap !important;';
         downloadBtn.onclick = async (e) => {
             e.preventDefault();
             const originalText = downloadBtn.innerText;
             downloadBtn.disabled = true;
+            status.textContent = '';
             try {
-                const urlWithoutQuery = url.split('?')[0].split('#')[0];
-                // 如果是 m3u8 则特殊处理，解析并合并分片
-                if (urlWithoutQuery.toLowerCase().endsWith('.m3u8')) {
-                    await handleM3u8Download(url, downloadBtn);
-                    downloadBtn.innerText = '合并成功!';
+                const info = mediaInfo.get(url) || {};
+                if (info.hls || isHlsUrl(url)) {
+                    status.textContent = await handleM3u8Download(url, downloadBtn);
+                    downloadBtn.innerText = '已发起保存';
                 } else {
                     downloadBtn.innerText = '下载中...';
-                    // 常规文件：使用 GM_xmlhttpRequest 绕过 CORS 跨域限制
-                    const blob = await new Promise((resolve, reject) => {
-                        GM_xmlhttpRequest({
-                            method: 'GET',
-                            url: url,
-                            headers: {
-                                'Referer': window.location.href,    // 强制设置防盗链 Referer 为当前页面
-                                'Origin': window.location.origin,   // 强制设置 Origin
-                                'Cookie': document.cookie           // 尝试携带当前页面的 Cookie
-                            },
-                            responseType: 'blob', // 关键：指定返回二进制数据
-                            onload: (res) => {
-                                if (res.status >= 200 && res.status < 300) {
-                                    resolve(res.response);
-                                } else {
-                                    reject(new Error('请求失败，状态码: ' + res.status));
-                                }
-                            },
-                            onerror: (err) => reject(new Error('网络请求出错：' + err)),
-                            ontimeout: () => reject(new Error('请求超时'))
-                        });
-                    });
-                    
-                    const blobUrl = URL.createObjectURL(blob);
-                    
-                    // 借助 a 标签触发文件下载
-                    const aDownload = document.createElement('a');
-                    aDownload.style.display = 'none';
-                    aDownload.href = blobUrl;
-                    
-                    // 从 URL 解析文件名
-                    let fileName = url.substring(url.lastIndexOf('/') + 1).split('?')[0];
-                    if (!fileName || !fileName.includes('.')) {
-                        fileName = 'media_download_' + Date.now();
-                    }
-                    aDownload.download = fileName;
-                    
-                    document.body.appendChild(aDownload);
-                    aDownload.click();
-                    
-                    // 清理
-                    document.body.removeChild(aDownload);
-                    URL.revokeObjectURL(blobUrl);
-                    downloadBtn.innerText = '成功!';
+                    const res = await requestMedia(url, 'blob', info.referer);
+                    saveBlob(res.response, getFileName(url));
+                    downloadBtn.innerText = '已发起保存';
                 }
             } catch (err) {
                 console.error('[AutoGetMedia] 下载出错:', err);
-                downloadBtn.innerText = '失败(看控制台)';
+                downloadBtn.innerText = '下载失败';
+                status.textContent = err.message;
             }
             setTimeout(() => {
                 downloadBtn.innerText = originalText;
@@ -378,126 +389,271 @@
         opDiv.appendChild(downloadBtn);
         li.appendChild(a);
         li.appendChild(opDiv);
+        li.appendChild(status);
         agmList.prepend(li); // 将最新的URL加在顶部
     }
 
     // 全局调用：每当收到新的 URL 时调用
-    window.updateUI = function(url) {
+    function updateUI(url) {
         if (agmCount) {
             agmCount.innerText = mediaUrls.size;
         }
         renderUrlItem(url);
-    };
+    }
+    window.updateUI = updateUI;
 
-    /**
-     * 解析并下载 m3u8，处理其包含的 ts 分片并合并为整段视频下载
-     */
-    async function handleM3u8Download(m3u8Url, btnElement) {
-        btnElement.innerText = '解析m3u8...';
-        
-        // 1. 获取 m3u8 内容
-        const m3u8Text = await new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: m3u8Url,
-                headers: {
-                    'Referer': window.location.href,
-                    'Origin': window.location.origin,
-                    'Cookie': document.cookie
-                },
-                onload: (res) => {
-                    if (res.status >= 200 && res.status < 300) resolve(res.responseText);
-                    else reject(new Error('获取 m3u8 失败: ' + res.status));
-                },
-                onerror: (err) => reject(new Error('网络请求出错: ' + err)),
-                ontimeout: () => reject(new Error('请求超时'))
-            });
-        });
-
-        const lines = m3u8Text.split('\n').map(l => l.trim()).filter(l => l);
-        
-        // 判断是否为套娃 m3u8 (Master Playlist，通常包含 #EXT-X-STREAM-INF)
-        if (lines.some(l => l.includes('#EXT-X-STREAM-INF'))) {
-            // 简单取最后一个码率的 m3u8 链接进一步解析
-            const subM3u8s = lines.filter(l => !l.startsWith('#'));
-            if (subM3u8s.length > 0) {
-                const subUrl = new URL(subM3u8s[subM3u8s.length - 1], m3u8Url).href;
-                btnElement.innerText = '拉取子m3u8...';
-                return handleM3u8Download(subUrl, btnElement); // 递归解析子 m3u8
-            } else {
-                throw new Error('未找到有效的子播放列表');
-            }
-        }
-
-        // 解析当前列表中的分片 URL (通常是 .ts，也可能是其他格式)
-        const segmentUrls = lines.filter(l => !l.startsWith('#')).map(sub => new URL(sub, m3u8Url).href);
-        if (segmentUrls.length === 0) throw new Error('未在 m3u8 中找到任何媒体分片');
-
-        const total = segmentUrls.length;
-        const chunks = new Array(total);
-        let downloaded = 0;
-        const maxConcurrent = 5; // 控制并发数为 5，避免对服务器并发压力过大
-        
-        async function downloadChunk(chunkUrl, index) {
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: chunkUrl,
-                    responseType: 'arraybuffer',
-                    headers: {
-                        'Referer': window.location.href,
-                        'Origin': window.location.origin,
-                        'Cookie': document.cookie
-                    },
-                    onload: (res) => {
-                        if (res.status >= 200 && res.status < 300) {
-                            chunks[index] = res.response;
-                            downloaded++;
-                            // 动态更新按钮文字，显示下载进度
-                            btnElement.innerText = `下载中 (${downloaded}/${total})`;
-                            resolve();
-                        } else {
-                            reject(new Error('分片下载失败，状态码: ' + res.status));
-                        }
-                    },
-                    onerror: (err) => reject(new Error('分片请求出错: ' + err)),
-                    ontimeout: () => reject(new Error('分片请求超时'))
+    // HLS 按 RFC 8216 解析；浏览器内合并容器，不进行转码或音视频混流。
+    // https://www.rfc-editor.org/rfc/rfc8216
+    async function requestMedia(url, responseType = 'text', referer = window.location.href, range = null) {
+        for (let attempt = 0; ; attempt++) {
+            try {
+                return await new Promise((resolve, reject) => {
+                    const headers = { Referer: referer || window.location.href };
+                    // 不把当前网页 document.cookie 发送给 CDN；由 GM 按目标域管理 Cookie。
+                    if (range) headers.Range = `bytes=${range.start}-${range.end}`;
+                    GM_xmlhttpRequest({
+                        method: 'GET', url, headers, responseType, timeout: 30000,
+                        onload: res => {
+                            if (res.status >= 200 && res.status < 300) resolve(res);
+                            else reject(Object.assign(new Error(`HTTP ${res.status}: ${url}`), {
+                                retryable: res.status === 429 || res.status >= 500
+                            }));
+                        },
+                        onerror: () => reject(Object.assign(new Error(`网络请求失败: ${url}`), { retryable: true })),
+                        ontimeout: () => reject(Object.assign(new Error(`请求超时: ${url}`), { retryable: true })),
+                        onabort: () => reject(new Error('下载请求已取消'))
+                    });
                 });
-            });
-        }
-
-        // 2. 控制并发下载所有分片
-        for (let i = 0; i < total; i += maxConcurrent) {
-            const batch = [];
-            for (let j = 0; j < maxConcurrent && i + j < total; j++) {
-                batch.push(downloadChunk(segmentUrls[i + j], i + j));
+            } catch (error) {
+                if (!error.retryable || attempt >= 2) throw error;
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
             }
-            await Promise.all(batch);
         }
+    }
 
-        btnElement.innerText = '合并分片...';
+    function getFileName(url) {
+        let name = new URL(url).pathname.split('/').pop() || 'media_' + Date.now();
+        try { name = decodeURIComponent(name); } catch (e) {}
+        return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_');
+    }
 
-        // 3. 将所有下载的 ArrayBuffer 分片合并成一个视频 Blob
-        const blob = new Blob(chunks, { type: 'video/mp2t' });
-        
-        let fileName = m3u8Url.substring(m3u8Url.lastIndexOf('/') + 1).split('?')[0];
-        // 替换后缀名，将 m3u8 自动改成 ts 视频格式输出
-        fileName = fileName.replace('.m3u8', '.ts');
-        if (!fileName || fileName === '.ts') {
-            fileName = 'video_merged_' + Date.now() + '.ts';
-        }
-        
-        // 4. 执行浏览器本地下载
+    function saveBlob(blob, fileName) {
         const blobUrl = URL.createObjectURL(blob);
-        const aDownload = document.createElement('a');
-        aDownload.style.display = 'none';
-        aDownload.href = blobUrl;
-        aDownload.download = fileName;
-        document.body.appendChild(aDownload);
-        aDownload.click();
-        
-        document.body.removeChild(aDownload);
-        URL.revokeObjectURL(blobUrl);
+        const anchor = document.createElement('a');
+        anchor.style.display = 'none';
+        anchor.href = blobUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        // 立即 revoke 可能在浏览器读取 Blob 前释放数据。
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    }
+
+    function parseAttributes(text) {
+        const attributes = {};
+        const pattern = /([A-Z0-9-]+)=("[^"]*"|[^,]*)/g;
+        for (const match of text.matchAll(pattern)) {
+            attributes[match[1]] = match[2].replace(/^"|"$/g, '');
+        }
+        return attributes;
+    }
+
+    function hlsUrl(uri, base) {
+        const url = normalizeUrl(uri, base);
+        if (!url || uri.includes('{$')) throw new Error('清单包含不支持的 URL 或变量: ' + uri);
+        return url;
+    }
+
+    function parseRange(value, url, previous) {
+        const match = /^(\d+)(?:@(\d+))?$/.exec(value || '');
+        if (!match) throw new Error('无效的 EXT-X-BYTERANGE: ' + value);
+        if (match[2] === undefined && (!previous || previous.url !== url || !previous.range)) {
+            throw new Error('字节范围缺少起点或同资源的前一个范围');
+        }
+        const start = match[2] === undefined ? previous.range.end + 1 : Number(match[2]);
+        const length = Number(match[1]);
+        const end = start + length - 1;
+        if (length <= 0 || !Number.isSafeInteger(length) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end)) {
+            throw new Error('无效或过大的字节范围');
+        }
+        return { start, end };
+    }
+
+    function makeIv(value, sequence) {
+        if (value && !/^0x[0-9a-f]{1,32}$/i.test(value)) throw new Error('无效的 AES-128 IV');
+        const number = value ? BigInt(value) : sequence;
+        if (number < 0n || number >= (1n << 128n)) throw new Error('媒体序号超出 AES IV 范围');
+        const hex = number.toString(16).padStart(32, '0');
+        return Uint8Array.from(hex.match(/../g), byte => parseInt(byte, 16));
+    }
+
+    function parsePlaylist(text, base) {
+        const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        if (lines[0] !== '#EXTM3U') throw new Error('响应不是有效的 m3u8 清单（可能已过期或需要登录）');
+        const playlist = { url: base, variants: [], renditions: [], segments: [], live: !lines.includes('#EXT-X-ENDLIST') };
+        let variant = null, key = null, map = null, range = null, previous = null, sequence = 0n;
+        for (const line of lines.slice(1)) {
+            const value = line.slice(line.indexOf(':') + 1);
+            if (line.startsWith('#EXT-X-STREAM-INF:')) variant = parseAttributes(value);
+            else if (line.startsWith('#EXT-X-MEDIA:')) playlist.renditions.push(parseAttributes(value));
+            else if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
+                if (!/^\d+$/.test(value)) throw new Error('无效的媒体序号');
+                sequence = BigInt(value);
+            } else if (line.startsWith('#EXT-X-KEY:')) {
+                const attributes = parseAttributes(value);
+                if (attributes.METHOD === 'NONE') key = null;
+                else {
+                    if (attributes.METHOD !== 'AES-128' || (attributes.KEYFORMAT && attributes.KEYFORMAT !== 'identity')) {
+                        throw new Error('暂不支持此加密方式（SAMPLE-AES / DRM），无法直接合并');
+                    }
+                    if (!attributes.URI) throw new Error('AES-128 清单缺少密钥地址');
+                    if (attributes.IV) makeIv(attributes.IV, 0n);
+                    key = { url: hlsUrl(attributes.URI, base), iv: attributes.IV };
+                }
+            } else if (line.startsWith('#EXT-X-BYTERANGE:')) range = value;
+            else if (line.startsWith('#EXT-X-MAP:')) {
+                const attributes = parseAttributes(value);
+                if (!attributes.URI) throw new Error('初始化片段缺少 URI');
+                const url = hlsUrl(attributes.URI, base);
+                const nextMap = { url, key, range: attributes.BYTERANGE ? parseRange(attributes.BYTERANGE, url, map) : null };
+                if (key && !key.iv) throw new Error('加密的初始化片段必须提供显式 IV');
+                if (map && JSON.stringify(map) !== JSON.stringify(nextMap)) {
+                    throw new Error('清单中初始化片段发生变化，暂不支持直接合并');
+                }
+                map = nextMap;
+            } else if (line === '#EXT-X-I-FRAMES-ONLY' || line.startsWith('#EXT-X-SKIP:') || line === '#EXT-X-GAP') {
+                throw new Error('暂不支持仅关键帧、增量清单或含缺失片段的清单');
+            } else if (line === '#EXT-X-DISCONTINUITY') playlist.discontinuity = true;
+            else if (!line.startsWith('#')) {
+                const url = hlsUrl(line, base);
+                if (variant) {
+                    playlist.variants.push({ url, attributes: variant });
+                    variant = null;
+                } else {
+                    if (playlist.segments.length && !!map !== !!playlist.segments[0].map) {
+                        throw new Error('清单中途切换容器，暂不支持直接合并');
+                    }
+                    const segment = { url, key, map, sequence, range: range ? parseRange(range, url, previous) : null };
+                    playlist.segments.push(segment);
+                    previous = segment;
+                    sequence++;
+                    range = null;
+                }
+            }
+        }
+        if (variant) throw new Error('主清单缺少子清单 URI');
+        if (playlist.segments.some(segment => segment.map) && playlist.discontinuity) {
+            throw new Error('fMP4 含时间线不连续点，需使用混流工具处理');
+        }
+        return playlist;
+    }
+
+    async function resolvePlaylist(url, referer, visited = new Set()) {
+        if (visited.has(url) || visited.size >= 8) throw new Error('m3u8 子清单循环或层数过多');
+        visited.add(url);
+        const response = await requestMedia(url, 'text', referer);
+        const base = response.finalUrl || url; // 相对地址基于重定向后的清单 URL。
+        const playlist = parsePlaylist(response.responseText || response.response || '', base);
+        if (!playlist.variants.length) {
+            if (!playlist.segments.length) throw new Error('清单中没有完整媒体分片（低延迟直播可能尚未生成分片）');
+            return { video: playlist, audio: null };
+        }
+        // 清单顺序不代表质量，按带宽选取最高码率。
+        const selected = playlist.variants.sort((a, b) =>
+            Number(b.attributes['AVERAGE-BANDWIDTH'] || b.attributes.BANDWIDTH || 0) -
+            Number(a.attributes['AVERAGE-BANDWIDTH'] || a.attributes.BANDWIDTH || 0))[0];
+        if (selected.attributes.VIDEO && playlist.renditions.some(item =>
+            item.TYPE === 'VIDEO' && item['GROUP-ID'] === selected.attributes.VIDEO && item.URI)) {
+            throw new Error('暂不支持主清单中的外置视频轨道');
+        }
+        const result = await resolvePlaylist(selected.url, referer, visited);
+        const audioGroup = playlist.renditions.filter(item => item.TYPE === 'AUDIO' && item['GROUP-ID'] === selected.attributes.AUDIO);
+        const audio = audioGroup.find(item => item.DEFAULT === 'YES') || audioGroup.find(item => item.AUTOSELECT === 'YES') || audioGroup[0];
+        if (audio && audio.URI) {
+            const audioResult = await resolvePlaylist(hlsUrl(audio.URI, base), referer, new Set(visited));
+            result.audio = audioResult.video;
+        }
+        return result;
+    }
+
+    async function fetchBytes(item, referer) {
+        const res = await requestMedia(item.url, 'arraybuffer', referer, item.range);
+        const bytes = new Uint8Array(res.response);
+        if (!bytes.byteLength) throw new Error('收到空的媒体分片: ' + item.url);
+        if (!item.range) return bytes;
+        const { start, end } = item.range;
+        if (res.status === 206) {
+            const match = /^content-range:\s*bytes\s+(\d+)-(\d+)\/(?:\d+|\*)\s*$/im.exec(res.responseHeaders || '');
+            if (!match || Number(match[1]) !== start || Number(match[2]) !== end || bytes.length !== end - start + 1) {
+                throw new Error('服务器返回了错误的分片字节范围');
+            }
+            return bytes;
+        }
+        // 有些服务器忽略 Range 返回整个文件，必须本地截取而非重复拼接完整文件。
+        if (res.status === 200 && bytes.length > end) return bytes.slice(start, end + 1);
+        throw new Error('服务器未提供请求的分片字节范围');
+    }
+
+    async function downloadPlaylist(playlist, referer, btnElement, label) {
+        const keys = new Map();
+        async function loadItem(item, sequence = 0n) {
+            const bytes = await fetchBytes(item, referer);
+            if (!item.key) return bytes;
+            if (!globalThis.crypto || !globalThis.crypto.subtle) throw new Error('AES-128 解密需要支持 Web Crypto 的安全页面（HTTPS）');
+            if (!keys.has(item.key)) {
+                keys.set(item.key, (async () => {
+                    const data = await fetchBytes({ url: item.key.url }, referer);
+                    if (data.length !== 16) throw new Error('AES-128 密钥长度必须为 16 字节');
+                    return crypto.subtle.importKey('raw', data, 'AES-CBC', false, ['decrypt']);
+                })());
+            }
+            try {
+                return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: makeIv(item.key.iv, sequence) }, await keys.get(item.key), bytes));
+            } catch (error) { throw new Error('AES-128 解密失败: ' + error.message); }
+        }
+        const segments = playlist.segments;
+        const chunks = new Array(segments.length);
+        const init = segments[0].map ? await loadItem(segments[0].map) : null;
+        let downloaded = 0;
+        for (let i = 0; i < segments.length; i += 5) {
+            // 等待本批请求全部结束后再报错，避免失败后仍有请求更新 UI。
+            const batch = await Promise.allSettled(segments.slice(i, i + 5).map(async (segment, offset) => {
+                chunks[i + offset] = await loadItem(segment, segment.sequence);
+                btnElement.innerText = `${label} (${++downloaded}/${segments.length})`;
+            }));
+            const failure = batch.find(result => result.status === 'rejected');
+            if (failure) throw failure.reason;
+        }
+        btnElement.innerText = '合并分片...';
+        const pathname = new URL(segments[0].url).pathname;
+        const first = chunks[0];
+        const boxType = first.length >= 8 ? String.fromCharCode(...first.subarray(4, 8)) : '';
+        if (!init && boxType === 'moof') throw new Error('fMP4 清单缺少 EXT-X-MAP 初始化片段');
+        let extension = init || boxType === 'ftyp' ? 'mp4' : 'ts';
+        if (!init && /\.(aac|mp3)$/i.test(pathname)) extension = pathname.match(/\.(aac|mp3)$/i)[1].toLowerCase();
+        const type = extension === 'mp4' ? 'video/mp4' : extension === 'aac' ? 'audio/aac' : extension === 'mp3' ? 'audio/mpeg' : 'video/mp2t';
+        return { blob: new Blob(init ? [init, ...chunks] : chunks, { type }), extension };
+    }
+
+    async function handleM3u8Download(m3u8Url, btnElement) {
+        btnElement.innerText = '解析 m3u8...';
+        const referer = (mediaInfo.get(m3u8Url) || {}).referer || window.location.href;
+        const tracks = await resolvePlaylist(m3u8Url, referer);
+        const notes = [];
+        if (tracks.video.live || (tracks.audio && tracks.audio.live)) {
+            notes.push('直播：仅保存本次清单中已有的片段，不持续录制。');
+        }
+        const video = await downloadPlaylist(tracks.video, referer, btnElement, '下载媒体');
+        const audio = tracks.audio ? await downloadPlaylist(tracks.audio, referer, btnElement, '下载音轨') : null;
+        const name = getFileName(m3u8Url).replace(/\.(m3u8?|[^.]+)$/i, '') || 'media_' + Date.now();
+        saveBlob(video.blob, `${name}${tracks.video.live ? '_snapshot' : ''}.${video.extension}`);
+        if (audio) {
+            saveBlob(audio.blob, `${name}_audio.${audio.extension === 'mp4' ? 'm4a' : audio.extension}`);
+            notes.push('独立音轨已单独保存为 _audio 文件；浏览器若拦截多个下载，请允许后重试。需要单个含声音的视频时，需再混流。');
+        }
+        notes.unshift('已发起媒体文件保存（按带宽选择最高码率）。');
+        return notes.join('\n');
     }
 
 })();
