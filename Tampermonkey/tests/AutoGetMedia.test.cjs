@@ -55,8 +55,8 @@ test('iframe resources appear when userscript window differs from page WindowPro
     const rows = env.ids.get('agm-list-wrapper').children[0].children;
     assert.equal(rows.length, 1); // 分片默认归入其清单，而非新增外层卡片。
     assert.equal(rows[0].children[2].children[1].innerText, '下载媒体内容');
-    assert.ok(!rows[0].children[4].open);
-    assert.equal(rows[0].children[4].children[1].children.length, 0);
+    assert.ok(!rows[0].children[5].open);
+    assert.equal(rows[0].children[5].children[1].children.length, 0);
     assert.equal(env.api.mediaInfo.get('https://cdn.test/stream?token=1').referer, 'https://frame.test/watch?id=2');
 });
 test('nested iframe resources are accepted and duplicate notifications do not add rows', async () => {

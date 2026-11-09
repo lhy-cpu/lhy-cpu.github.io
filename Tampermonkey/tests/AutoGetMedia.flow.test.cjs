@@ -3,7 +3,7 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { webcrypto } = require('node:crypto');
-const source = fs.readFileSync(process.argv[2] || require('node:path').join(__dirname,'..','AutoGetMedia.user.js'), 'utf8').replace('await runMediaFFmpeg(engineInputs, command.args, report)', 'await globalThis.__testRunner(engineInputs, command.args, report)').replace(/\}\)\(\);\s*$/, `globalThis.api = { parsePlaylist, parseAttributes, makeIv, resolvePlaylist, downloadPlaylist, handleM3u8Download, fetchBytes, requestMedia, checkUrl, inspectFetchResponse, mediaInfo, mediaUrls, initUI, renderResourceTree, downloadMediaResource, processingSettings, selectedSources, markResource };\n})();`);
+const source = fs.readFileSync(process.argv[2] || require('node:path').join(__dirname,'..','AutoGetMedia.user.js'), 'utf8').replace('await runMediaFFmpeg(engineInputs, command.args, report)', 'await globalThis.__testRunner(engineInputs, command.args, report)').replace(/\}\)\(\);\s*$/, `globalThis.api = { parsePlaylist, parseAttributes, makeIv, resolvePlaylist, downloadPlaylist, handleM3u8Download, fetchBytes, requestMedia, checkUrl, inspectFetchResponse, mediaInfo, mediaUrls, initUI, renderResourceTree, downloadMediaResource, processingSettings, selectedSources, markResource, downloadStates };\n})();`);
 const base = 'https://cdn.test/hls/list.m3u8?token=ok';
 const text = lines => '#EXTM3U\n' + lines + '\n#EXT-X-ENDLIST';
 function setup({ready = 'loading', frame = false, block = false} = {}) {
@@ -21,6 +21,7 @@ function setup({ready = 'loading', frame = false, block = false} = {}) {
         appendChild(el) { this.children.push(el); el.parentNode = this; }
         prepend(el) { this.children.unshift(el); el.parentNode = this; }
         replaceChildren(...children) { this.children = []; children.forEach(el => this.appendChild(el)); }
+        removeAttribute(name) { delete this[name]; }
         addEventListener(type, fn) { this.events[type] = fn; }
         closest() { return this.parentNode; }
         click() { if (this.download) saved.push({name: this.download, blob: blobs.get(this.href)}); }
@@ -49,6 +50,10 @@ function setup({ready = 'loading', frame = false, block = false} = {}) {
             setTimeout(() => {
                 if (!route) return options.onload({status:404});
                 const result = typeof route === 'function' ? route(options) : route;
+                for (const event of result.progress || []) {
+                    if (options.onprogress) options.onprogress(event);
+                    if (result.observeProgress) result.observeProgress();
+                }
                 if (result.error) return options.onerror();
                 if (result.timeout) return options.ontimeout();
                 let body = result.body || '';
@@ -99,4 +104,41 @@ test('marked video and audio use the selected streams in one output file',async(
 test('incompatible explicit encoder and container do not produce a mislabeled download',async()=>{
  const env=setup();const url='https://cdn.test/video.mp4';env.routes.set(url,{body:[1,2]});Object.assign(env.api.processingSettings,{format:'webm',videoMode:'encode',videoCodec:'libx264'});
  await assert.rejects(env.api.downloadMediaResource(url,{}));assert.equal(env.engineCalls.length,0);assert.equal(env.saved.length,0);
+});
+
+
+test('ordinary download publishes byte counts on its own resource card', async()=>{
+ const env=setup({ready:'complete'});const url='https://cdn.test/source.mp4';env.api.checkUrl(url);env.api.renderResourceTree();
+ const snapshots=[];env.routes.set(url,{body:[1,2,3,4],progress:[{loaded:2,total:4,lengthComputable:true}],observeProgress(){snapshots.push({...env.api.downloadStates.get(url)});}});
+ await env.api.downloadMediaResource(url,{});
+ assert.equal(snapshots[0].loaded,2);assert.equal(snapshots[0].total,4);
+ const state=env.api.downloadStates.get(url);assert.equal(state.phase,'done');assert.equal(state.loaded,4);assert.equal(state.total,4);
+ const row=env.ids.get('agm-list-wrapper').children[0].children[0];
+ assert.equal(row.children[4].hidden,false);assert.match(row.children[4].children[0].textContent,/已下载 4 B \/ 4 B/);assert.equal(row.children[4].children[1].value,100);
+});
+
+test('mixed download leaves separate byte progress on the video and audio source cards',async()=>{
+ const env=setup({ready:'complete'});const video='https://cdn.test/video.mp4',audio='https://cdn.test/audio.m4a';
+ for(const url of [video,audio])env.api.checkUrl(url);env.api.renderResourceTree();
+ const snapshots=[];
+ env.routes.set(video,{body:Array(20).fill(1),progress:[{loaded:10,total:20,lengthComputable:true}],observeProgress(){snapshots.push([env.api.downloadStates.get(video).loaded,env.api.downloadStates.get(audio).phase]);}});
+ env.routes.set(audio,{body:Array(5).fill(1),progress:[{loaded:2,total:5,lengthComputable:true}],observeProgress(){snapshots.push([env.api.downloadStates.get(video).loaded,env.api.downloadStates.get(audio).loaded]);}});
+ env.api.markResource('video',video);env.api.markResource('audio',audio);await env.ids.get('agm-mux-start').onclick();
+ assert.deepEqual(snapshots,[[10,'waiting'],[20,2]]);
+ assert.equal(env.api.downloadStates.get(video).total,20);assert.equal(env.api.downloadStates.get(audio).total,5);
+ const rows=env.ids.get('agm-list-wrapper').children[0].children;
+ assert.ok(rows.every(row=>row.children[4].children[1].value===100));
+});
+
+test('HLS progress includes every selected video and audio part before either track finishes',async()=>{
+ const env=setup();env.routes.set(base,{body:'#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",DEFAULT=YES,URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=100,AUDIO="a"\nvideo.m3u8'});
+ env.routes.set('https://cdn.test/hls/video.m3u8',{body:text('#EXTINF:1,\nv.ts')});
+ env.routes.set('https://cdn.test/hls/audio.m3u8',{body:text('#EXTINF:1,\na.aac')});
+ const snapshots=[];
+ env.routes.set('https://cdn.test/hls/v.ts',{body:[71,1,2,3],progress:[{loaded:2,total:4,lengthComputable:true}],observeProgress(){snapshots.push({...env.api.downloadStates.get(base)});}});
+ env.routes.set('https://cdn.test/hls/a.aac',{body:[255,241,3],progress:[{loaded:1,total:3,lengthComputable:true}],observeProgress(){snapshots.push({...env.api.downloadStates.get(base)});}});
+ await env.api.downloadMediaResource(base,{});
+ assert.equal(snapshots[0].totalParts,2);assert.equal(snapshots[0].loaded,2);assert.equal(snapshots[0].total,null);
+ assert.equal(snapshots[1].totalParts,2);assert.equal(snapshots[1].completedParts,1);assert.equal(snapshots[1].loaded,5);assert.equal(snapshots[1].total,7);
+ const state=env.api.downloadStates.get(base);assert.equal(state.phase,'done');assert.equal(state.loaded,7);assert.equal(state.total,7);
 });

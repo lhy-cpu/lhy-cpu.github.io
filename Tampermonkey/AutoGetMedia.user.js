@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGetMedia
 // @namespace    https://lhy-cpu.github.io
-// @version      0.4.3
+// @version      0.4.4
 // @description  拦截网络请求，并筛选出其中的媒体文件（视频、音频等），支持 HLS、分片下载、音视频混流与格式转换。(Beta)
 // @author       lhy-cpu
 // @match        *://*/*
@@ -24,6 +24,9 @@
     // 存储抓取到的媒体链接
     const mediaUrls = new Set();
     const mediaInfo = new Map();
+    const downloadStates = new Map();
+    const downloadPaintTimers = new Map();
+    let downloadTaskId = 0;
     const PROCESSING_DEFAULTS = { format: 'original', videoMode: 'copy', audioMode: 'copy', videoCodec: 'libx264', audioCodec: 'aac' };
     const savedProcessing = GM_getValue('agm_processing_settings', {});
     const processingSettings = { ...PROCESSING_DEFAULTS, ...(savedProcessing && typeof savedProcessing === 'object' ? savedProcessing : {}) };
@@ -444,6 +447,117 @@
     window.addEventListener('load', inspectExistingMedia);
     if (document.readyState !== 'loading') inspectExistingMedia();
 
+    function paintSourceDownload(url) {
+        const item = renderedItems.get(url);
+        if (item) renderSourceDownloadProgress(item, url);
+    }
+
+    function publishSourceDownload(url, state) {
+        downloadStates.set(url, state);
+        if (!renderedItems.has(url)) return;
+        if (state.phase !== 'downloading') { paintSourceDownload(url); return; }
+        if (downloadPaintTimers.has(url)) return;
+        downloadPaintTimers.set(url, setTimeout(() => {
+            downloadPaintTimers.delete(url);
+            paintSourceDownload(url);
+        }, 100));
+    }
+
+    function queueSourceDownload(url) {
+        const info = mediaInfo.get(url) || {};
+        publishSourceDownload(url, { taskId: ++downloadTaskId, phase: 'waiting', loaded: 0, total: info.size > 0 ? info.size : null, estimatedTotal: info.estimatedSize, completedParts: 0, totalParts: 0 });
+    }
+
+    function createSourceDownloadTracker(url) {
+        const taskId = ++downloadTaskId;
+        const parts = new Map();
+        const info = mediaInfo.get(url) || {};
+        let phase = 'downloading', error = '';
+        function current() {
+            const state = downloadStates.get(url);
+            return !state || state.taskId === taskId;
+        }
+        function publish() {
+            if (!current()) return;
+            const values = Array.from(parts.values());
+            const loaded = values.reduce((sum, part) => sum + part.loaded, 0);
+            const known = values.length > 0 && values.every(part => part.total !== null);
+            publishSourceDownload(url, { taskId, phase, loaded, total: known ? values.reduce((sum, part) => sum + part.total, 0) : null, estimatedTotal: info.estimatedSize, completedParts: values.filter(part => part.done).length, totalParts: values.length, ...(error ? { error } : {}) });
+        }
+        // 先占据新任务的槽位，旧任务的迟到回调不会覆盖当前卡片。
+        downloadStates.set(url, { taskId, phase });
+        publish();
+        function writable() { return current() && phase === 'downloading'; }
+        const tracker = {
+            add(id, total = 0) {
+                if (!writable() || parts.has(id)) return;
+                const expected = Number.isFinite(Number(total)) && Number(total) > 0 ? Number(total) : null;
+                parts.set(id, { loaded: 0, total: expected, expected, unreliable: false, done: false });
+                publish();
+            },
+            update(id, event) {
+                if (!writable()) return;
+                if (!parts.has(id)) tracker.add(id);
+                const part = parts.get(id);
+                if (part.done) return;
+                if (event.reset) part.loaded = 0;
+                const loaded = Number(event.loaded);
+                if (Number.isFinite(loaded) && loaded >= 0) part.loaded = Math.max(part.loaded, loaded);
+                const reported = Number(event.total);
+                let total = part.expected !== null ? part.expected : event.lengthComputable === false ? null : Number.isFinite(reported) && reported > 0 ? reported : part.total;
+                if (total !== null && part.loaded > total) part.unreliable = true;
+                part.total = part.unreliable ? null : total;
+                publish();
+            },
+            complete(id, bytes) {
+                if (!writable()) return;
+                if (!parts.has(id)) tracker.add(id);
+                const part = parts.get(id);
+                if (part.done) return;
+                const size = Number(bytes);
+                if (!Number.isFinite(size) || size < 0) return;
+                part.loaded = part.total = size;
+                part.done = true;
+                publish();
+            },
+            finish() {
+                if (!writable()) return;
+                phase = 'done';
+                publish();
+            },
+            fail(message) {
+                if (!writable()) return;
+                phase = 'error'; error = String(message || '下载失败');
+                publish();
+            },
+            cancel() {
+                if (!writable()) return;
+                phase = 'cancelled';
+                publish();
+            }
+        };
+        return tracker;
+    }
+
+    function renderSourceDownloadProgress(item, url) {
+        const state = downloadStates.get(url);
+        item.sourceProgress.hidden = !state;
+        if (!state) return;
+        const exact = state.total !== null && Number.isFinite(state.total);
+        const total = exact ? formatBytes(state.total) : state.estimatedTotal > 0 ? `约 ${formatBytes(state.estimatedTotal)}（估算）` : '总大小未知';
+        const labels = { waiting: '等待下载', downloading: '下载中', done: '源文件下载完成', error: '下载失败', cancelled: '下载已取消' };
+        let label = `${labels[state.phase]} · 已下载 ${formatBytes(state.loaded)} / ${total}`;
+        if (state.totalParts > 1) label += ` · 片段 ${state.completedParts}/${state.totalParts}`;
+        if (state.error) label += '\n' + state.error;
+        item.sourceProgressText.textContent = label;
+        const fraction = state.phase === 'done' ? 1 : state.phase === 'waiting' ? 0 : exact && state.total > 0 ? state.loaded / state.total : state.totalParts > 1 ? state.completedParts / state.totalParts : null;
+        item.sourceProgressBar.max = 100;
+        if (fraction === null && ['error', 'cancelled'].includes(state.phase)) item.sourceProgressBar.value = 0;
+        else if (fraction === null) item.sourceProgressBar.removeAttribute('value');
+        else item.sourceProgressBar.value = Math.max(0, Math.min(100, fraction * 100));
+        item.sourceProgressBar.title = !exact && state.totalParts > 1 ? '按已完成片段计算进度' : '源文件下载进度';
+    }
+
     function getProcessingSettings() {
         return { ...processingSettings };
     }
@@ -460,7 +574,7 @@
     function createMixerPanel(wrapper) {
         const panel = document.createElement('section');
         panel.id = 'agm-mixer';
-        panel.style.cssText = 'border-top: 1px solid #ddd !important; padding: 12px !important; color: #333 !important; font-size: 12px !important;';
+        panel.style.cssText = 'flex: 0 0 auto !important; border-top: 1px solid #ddd !important; padding: 12px !important; color: #333 !important; font-size: 12px !important;';
         const heading = document.createElement('div');
         heading.textContent = '下载输出';
         heading.style.cssText = 'font-weight: bold !important; margin-bottom: 8px !important;';
@@ -552,6 +666,8 @@
             status.textContent = '';
             try {
                 await runMediaJob(async job => {
+                    queueSourceDownload(videoUrl);
+                    queueSourceDownload(audioUrl);
                     const progress = progressTarget(message => reportMediaProgress(message, start));
                     const video = await prepareMediaResource(videoUrl, 'video', progress);
                     assertMediaJobActive(job);
@@ -561,7 +677,13 @@
                     await processAndSaveMedia(inputs, settings, video.base + '_muxed', job, message => reportMediaProgress(message, start));
                     status.textContent = ['已发起混流文件保存。', ...video.notes, ...audio.notes].join('\n');
                 });
-            } catch (error) { status.textContent = error.message; }
+            } catch (error) {
+                status.textContent = error.message;
+                for (const url of [videoUrl, audioUrl]) {
+                    const pending = downloadStates.get(url);
+                    if (pending && pending.phase === 'waiting') publishSourceDownload(url, { ...pending, phase: 'cancelled' });
+                }
+            }
             finally { start.textContent = '混流并下载'; }
         };
         wrapper.appendChild(panel);
@@ -632,28 +754,47 @@
     }
 
     async function prepareMediaResource(url, role, button) {
+        const tracker = createSourceDownloadTracker(url);
+        try {
+            const prepared = await prepareMediaResourceContents(url, role, button, tracker);
+            tracker.finish();
+            return prepared;
+        } catch (error) {
+            tracker.fail(error.message);
+            throw error;
+        }
+    }
+
+    async function prepareMediaResourceContents(url, role, button, tracker) {
         const info = mediaInfo.get(url) || {};
         const referer = info.referer || window.location.href;
         if (!info.hls && !isHlsUrl(url)) {
             button.innerText = '下载源文件…';
-            const response = await requestMedia(url, 'blob', referer);
+            tracker.add('file', info.size);
+            const response = await requestMedia(url, 'blob', referer, null, event => tracker.update('file', event));
+            tracker.complete('file', response.response.size);
             return { inputs: [{ name: getFileName(url), blob: response.response, role, duration: (mediaInfo.get(url) || {}).duration }], base: getFileName(url).replace(/\.[^.]+$/, ''), notes: [] };
         }
         button.innerText = '解析 m3u8…';
         const tracks = await resolvePlaylist(url, referer);
+        if (role === 'audio' && tracks.audio) registerPlaylistDownloadParts(tracker, tracks.audio, 'audio');
+        else {
+            registerPlaylistDownloadParts(tracker, tracks.video, 'video');
+            if (role === 'auto' && tracks.audio) registerPlaylistDownloadParts(tracker, tracks.audio, 'audio');
+        }
         const notes = [];
         if (tracks.video.live || (tracks.audio && tracks.audio.live)) notes.push('直播：仅保存本次清单中已有的片段，不持续录制。');
         const rawBase = getFileName(url).replace(/\.m3u8?$/i, '') || 'media';
         const base = rawBase + (tracks.video.live ? '_snapshot' : '');
         const inputs = [];
         if (role === 'audio' && tracks.audio) {
-            const audio = await downloadPlaylist(tracks.audio, referer, button, '下载音轨');
+            const audio = await downloadPlaylist(tracks.audio, referer, button, '下载音轨', tracker, 'audio');
             inputs.push({ name: `${rawBase}_audio.${audio.extension}`, blob: audio.blob, role: 'audio', duration: audio.duration });
         } else {
-            const video = await downloadPlaylist(tracks.video, referer, button, '下载媒体');
+            const video = await downloadPlaylist(tracks.video, referer, button, '下载媒体', tracker, 'video');
             inputs.push({ name: `${base}.${video.extension}`, blob: video.blob, role: role === 'auto' && tracks.audio ? 'video' : role, duration: video.duration });
             if (role === 'auto' && tracks.audio) {
-                const audio = await downloadPlaylist(tracks.audio, referer, button, '下载音轨');
+                const audio = await downloadPlaylist(tracks.audio, referer, button, '下载音轨', tracker, 'audio');
                 inputs.push({ name: `${rawBase}_audio.${audio.extension === 'mp4' ? 'm4a' : audio.extension}`, blob: audio.blob, role: 'audio', duration: audio.duration });
             }
         }
@@ -729,8 +870,9 @@
             display: none !important;
             background: #fff !important;
             border: 1px solid #ddd !important;
-            max-height: min(70vh, 640px) !important;
-            overflow-y: auto !important;
+            max-height: calc(100vh - 100px) !important;
+            overflow: hidden !important;
+            flex-direction: column !important;
             margin-top: 8px !important;
             border-radius: 6px !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
@@ -740,6 +882,9 @@
         agmList = document.createElement('ul');
         agmList.style.cssText = `
             list-style: none !important;
+            flex: 1 1 auto !important;
+            min-height: 0 !important;
+            overflow-y: auto !important;
             margin: 0 !important;
             padding: 10px !important;
             font-size: 12px !important;
@@ -769,7 +914,7 @@
         // 绑定点击收起/展开事件
         header.addEventListener('click', () => {
             const isHidden = listWrapper.style.display === 'none';
-            listWrapper.style.display = isHidden ? 'block' : 'none';
+            listWrapper.style.display = isHidden ? 'flex' : 'none';
             document.getElementById('agm-toggle').innerText = isHidden ? '▲' : '▼';
         });
 
@@ -846,6 +991,18 @@
         li.appendChild(metadata);
         li.appendChild(opDiv);
         li.appendChild(status);
+        const sourceProgress = document.createElement('div');
+        sourceProgress.className = 'agm-source-download';
+        sourceProgress.style.cssText = 'margin-top: 6px !important; font-size: 11px !important; color: #555 !important; white-space: pre-wrap !important;';
+        sourceProgress.hidden = true;
+        const sourceProgressText = document.createElement('div');
+        sourceProgressText.className = 'agm-source-download-label';
+        const sourceProgressBar = document.createElement('progress');
+        sourceProgressBar.className = 'agm-source-download-bar';
+        sourceProgressBar.style.cssText = 'display: block !important; width: 100% !important; height: 8px !important; margin-top: 4px !important; accent-color: #1a73e8 !important;';
+        sourceProgress.appendChild(sourceProgressText);
+        sourceProgress.appendChild(sourceProgressBar);
+        li.appendChild(sourceProgress);
         const details = document.createElement('details');
         details.style.cssText = 'margin-top: 6px !important; padding-left: 6px !important; border-left: 2px solid #dce6f5 !important;';
         const summary = document.createElement('summary');
@@ -857,7 +1014,7 @@
         details.appendChild(children);
         li.appendChild(details);
         // 原生 details 默认折叠；更新时复用节点，保留展开状态和正在下载的按钮。
-        return { li, details, summary, children, metadata, downloadBtn, markButtons };
+        return { li, details, summary, children, metadata, downloadBtn, markButtons, sourceProgress, sourceProgressText, sourceProgressBar };
     }
 
     function renderResourceTree() {
@@ -866,6 +1023,7 @@
             const key = node.url || node.key;
             let item = renderedItems.get(key);
             if (!item) { item = createResourceItem(node); renderedItems.set(key, item); }
+            if (node.url) renderSourceDownloadProgress(item, node.url);
             item.metadata.textContent = node.url ? formatMediaMetadata(mediaInfo.get(node.url) || {}) : `${node.children.length} 个分片`;
             item.details.hidden = !node.children.length;
             item.summary.textContent = `${item.details.open ? '收起' : '展开'}子资源 (${node.children.length})`;
@@ -2395,15 +2553,18 @@
 
     // HLS 按 RFC 8216 解析；浏览器内合并容器，不进行转码或音视频混流。
     // https://www.rfc-editor.org/rfc/rfc8216
-    async function requestMedia(url, responseType = 'text', referer = window.location.href, range = null) {
+    async function requestMedia(url, responseType = 'text', referer = window.location.href, range = null, onProgress = null) {
+        const progress = event => { if (typeof onProgress === 'function') { try { onProgress(event); } catch (e) { console.error('[AutoGetMedia] 下载进度更新失败:', e); } } };
         for (let attempt = 0; ; attempt++) {
             try {
                 return await new Promise((resolve, reject) => {
                     const headers = { Referer: referer || window.location.href };
                     // 不把当前网页 document.cookie 发送给 CDN；由 GM 按目标域管理 Cookie。
                     if (range) headers.Range = `bytes=${range.start}-${range.end}`;
+                    progress({ reset: true, loaded: 0, total: 0 });
                     GM_xmlhttpRequest({
                         method: 'GET', url, headers, responseType, timeout: 30000,
+                        onprogress: event => progress({ loaded: event.loaded, total: event.total, lengthComputable: event.lengthComputable }),
                         onload: res => {
                             if (res.status >= 200 && res.status < 300) {
                                 updateResourceMetadata(url, metadataFromHeaders(url, res.responseHeaders, res.status), referer);
@@ -2573,8 +2734,8 @@
         return result;
     }
 
-    async function fetchBytes(item, referer) {
-        const res = await requestMedia(item.url, 'arraybuffer', referer, item.range);
+    async function fetchBytes(item, referer, onProgress = null) {
+        const res = await requestMedia(item.url, 'arraybuffer', referer, item.range, onProgress);
         const bytes = new Uint8Array(res.response);
         if (!bytes.byteLength) throw new Error('收到空的媒体分片: ' + item.url);
         if (!item.range) return bytes;
@@ -2591,10 +2752,21 @@
         throw new Error('服务器未提供请求的分片字节范围');
     }
 
-    async function downloadPlaylist(playlist, referer, btnElement, label) {
+    function registerPlaylistDownloadParts(tracker, playlist, trackId) {
+        function add(item, id) {
+            const total = item.range ? item.range.end - item.range.start + 1 : (mediaInfo.get(item.url) || {}).size;
+            tracker.add(id, total);
+        }
+        if (playlist.segments[0].map) add(playlist.segments[0].map, trackId + ':init');
+        playlist.segments.forEach((segment, index) => add(segment, trackId + ':' + index));
+    }
+
+    async function downloadPlaylist(playlist, referer, btnElement, label, tracker = null, trackId = 'media') {
+        if (tracker) registerPlaylistDownloadParts(tracker, playlist, trackId);
         const keys = new Map();
-        async function loadItem(item, sequence = 0n) {
-            const bytes = await fetchBytes(item, referer);
+        async function loadItem(item, sequence = 0n, id = null) {
+            const bytes = await fetchBytes(item, referer, tracker && id !== null ? event => tracker.update(id, event) : null);
+            if (tracker && id !== null) tracker.complete(id, bytes.byteLength);
             if (!item.key) return bytes;
             if (!globalThis.crypto || !globalThis.crypto.subtle) throw new Error('AES-128 解密需要支持 Web Crypto 的安全页面（HTTPS）');
             if (!keys.has(item.key)) {
@@ -2610,12 +2782,12 @@
         }
         const segments = playlist.segments;
         const chunks = new Array(segments.length);
-        const init = segments[0].map ? await loadItem(segments[0].map) : null;
+        const init = segments[0].map ? await loadItem(segments[0].map, 0n, trackId + ':init') : null;
         let downloaded = 0;
         for (let i = 0; i < segments.length; i += 5) {
             // 等待本批请求全部结束后再报错，避免失败后仍有请求更新 UI。
             const batch = await Promise.allSettled(segments.slice(i, i + 5).map(async (segment, offset) => {
-                chunks[i + offset] = await loadItem(segment, segment.sequence);
+                chunks[i + offset] = await loadItem(segment, segment.sequence, trackId + ':' + (i + offset));
                 btnElement.innerText = `${label} (${++downloaded}/${segments.length})`;
             }));
             const failure = batch.find(result => result.status === 'rejected');
