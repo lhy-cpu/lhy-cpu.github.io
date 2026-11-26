@@ -1,35 +1,106 @@
 #!/usr/bin/env python3
 """Dependency-free fallback. Never log request paths, headers, bodies, or exceptions."""
 import argparse
+import base64
 import hmac
 import http.client
 import json
+import os
+import re
 import secrets
 import select
 import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 MAX_BODY = 40 * 1024 * 1024
 MAX_TIME = 3600
+
+
+def exact_origin(value):
+    if value == 'null':
+        return True
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+        return False
+    host = f'[{parsed.hostname}]' if ':' in parsed.hostname else parsed.hostname
+    default = 443 if parsed.scheme == 'https' else 80
+    return value == f'{parsed.scheme}://{host}' + (f':{port}' if port and port != default else '')
+
+
+def parse_proxy(value, source):
+    parsed = urlsplit(value)
+    try:
+        parsed.port
+    except ValueError:
+        parsed = None
+    if not parsed or parsed.scheme != 'http' or not parsed.hostname or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+        raise ValueError(f'{source} must be an http:// proxy URL such as http://127.0.0.1:7890')
+    return parsed
+
+
+def proxy_settings(explicit, env):
+    def pick(*names):
+        for name in names:
+            if env.get(name):
+                return env[name], name
+        return None
+    fixed = (explicit, '--proxy') if explicit is not None else None
+    chosen = {'https': fixed or pick('HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy'),
+              'http': fixed or pick('HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy')}
+    proxies, notes = {}, []
+    for scheme, entry in chosen.items():
+        if not entry:
+            continue
+        try:
+            proxies[scheme] = (parse_proxy(entry[0], entry[1]), entry[1])
+        except ValueError:
+            if entry[1] == '--proxy':
+                raise
+            notes.append(f'{entry[1]} ignored: only http:// proxies are supported.')
+    bypass = [] if fixed else [x.strip().lower() for x in (env.get('NO_PROXY') or env.get('no_proxy') or '').split(',') if x.strip()]
+
+    def for_target(target):
+        entry = proxies.get(target.scheme)
+        host = (target.hostname or '').lower()
+        if not entry or host in ('localhost', '::1') or host.startswith('127.'):
+            return None
+        port = target.port or (443 if target.scheme == 'https' else 80)
+        for rule in bypass:
+            bare = rule[2:] if rule.startswith('*.') else rule.lstrip('.')
+            if rule == '*' or rule == f'{host}:{port}' or host == bare or host.endswith('.' + bare):
+                return None
+        return entry[0]
+    active = sorted({f'{p.hostname}:{p.port or 80} ({source})' for p, source in proxies.values()})
+    description = '\n'.join([f"Upstream proxy: {', '.join(active)}" if active else 'Upstream proxy: none (direct connection)', *notes])
+    return for_target, description
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--origin', required=True)
     parser.add_argument('--port', type=int, default=18765)
+    parser.add_argument('--proxy')
     args = parser.parse_args()
-    parsed = urlsplit(args.origin)
-    if args.origin != 'null' and (parsed.scheme not in ('http', 'https') or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or args.origin != f'{parsed.scheme}://{parsed.netloc}'):
-        parser.error('--origin must be the exact webpage origin, or null for file://')
+    if not exact_origin(args.origin):
+        parser.error('--origin must be the exact webpage origin (lowercase host, no default port or path), or null for file://')
     if not 1 <= args.port <= 65535:
         parser.error('--port must be 1..65535')
+    try:
+        proxy_for, proxy_info = proxy_settings(args.proxy, os.environ)
+    except ValueError as error:
+        parser.error(str(error))
     token = secrets.token_hex(32)
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.0'
+        timeout = 30
 
         def log_message(self, *_args):
             pass
@@ -70,12 +141,20 @@ def main():
             upstream = None
             stopped = threading.Event()
             sent = False
+            expired = threading.Event()
 
             def expire():
-                try:
-                    self.connection.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+                expired.set()
+                if not sent:
+                    try:
+                        self.connection.shutdown(socket.SHUT_RD)
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        self.connection.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
                 if upstream:
                     if upstream.sock:
                         try:
@@ -84,6 +163,7 @@ def main():
                             pass
                     upstream.close()
 
+            deadline = time.monotonic() + MAX_TIME
             timeout = threading.Timer(MAX_TIME, expire)
             timeout.daemon = True
             timeout.start()
@@ -109,7 +189,7 @@ def main():
                 raw_target = self.headers.get('X-FlowSketch-Target', '')
                 try:
                     target = urlsplit(raw_target)
-                    if target.scheme not in ('http', 'https') or not target.hostname or target.username or target.password or '?' in raw_target or '#' in raw_target or not target.path.rstrip('/').endswith('/chat/completions'):
+                    if target.scheme not in ('http', 'https') or not target.hostname or target.username or target.password or '?' in raw_target or '#' in raw_target or not re.search(r'/chat/completions/?$', target.path):
                         raise ValueError()
                     if target.hostname in ('127.0.0.1', 'localhost', '::1') and (target.port or (443 if target.scheme == 'https' else 80)) == args.port:
                         raise ValueError()
@@ -129,8 +209,22 @@ def main():
                         raise ValueError()
                 except (ValueError, UnicodeError):
                     return self.reply(400, 'A JSON object is required.')
-                upstream = (http.client.HTTPSConnection if target.scheme == 'https' else http.client.HTTPConnection)(target.hostname, target_port, timeout=MAX_TIME)
-                deadline = time.monotonic() + MAX_TIME
+                proxy = proxy_for(target)
+                headers = {'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
+                request_path = target.path
+                if proxy:
+                    auth = {}
+                    if proxy.username or proxy.password:
+                        auth['Proxy-Authorization'] = 'Basic ' + base64.b64encode(f'{unquote(proxy.username or "")}:{unquote(proxy.password or "")}'.encode()).decode()
+                    if target.scheme == 'https':
+                        upstream = http.client.HTTPSConnection(proxy.hostname, proxy.port or 80, timeout=MAX_TIME)
+                        upstream.set_tunnel(target.hostname, target_port or 443, headers=auth)
+                    else:
+                        upstream = http.client.HTTPConnection(proxy.hostname, proxy.port or 80, timeout=MAX_TIME)
+                        request_path = raw_target
+                        headers.update(auth, Host=target.netloc)
+                else:
+                    upstream = (http.client.HTTPSConnection if target.scheme == 'https' else http.client.HTTPConnection)(target.hostname, target_port, timeout=MAX_TIME)
 
                 def monitor():
                     while not stopped.wait(0.1):
@@ -145,11 +239,10 @@ def main():
                             return
 
                 threading.Thread(target=monitor, daemon=True).start()
-                headers = {'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
                 for name in ('Authorization', 'Accept'):
                     if self.headers.get(name):
                         headers[name] = self.headers[name]
-                upstream.request('POST', target.path, body, headers)
+                upstream.request('POST', request_path, body, headers)
                 response = upstream.getresponse()
                 self.send_response(response.status)
                 self.send_header('Access-Control-Allow-Origin', args.origin)
@@ -170,7 +263,10 @@ def main():
             except (OSError, http.client.HTTPException, ValueError):
                 if not sent:
                     try:
-                        self.reply(502, 'Upstream connection failed. Check the endpoint and network.')
+                        if expired.is_set() or time.monotonic() >= deadline:
+                            self.reply(504, 'Upstream time limit reached.')
+                        else:
+                            self.reply(502, 'Upstream connection failed. Check the endpoint, network and proxy.')
                     except OSError:
                         pass
             finally:
@@ -189,7 +285,7 @@ def main():
         server = QuietServer(('127.0.0.1', args.port), Handler)
     except OSError:
         parser.exit(1, 'Cannot start relay. Check that the port is available.\n')
-    print(f'FlowSketch local relay: http://127.0.0.1:{args.port}\nAllowed webpage origin: {args.origin}\nToken (paste into AI settings): {token}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.', flush=True)
+    print(f'FlowSketch local relay: http://127.0.0.1:{args.port}\nAllowed webpage origin: {args.origin}\nToken (paste into AI settings): {token}\n{proxy_info}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

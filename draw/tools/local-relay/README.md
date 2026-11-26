@@ -41,6 +41,16 @@ Windows 的 Python 也可以使用 `py -3 .\server.py --origin https://draw.exam
 
 Token 不是供应商 API Key，不用填写到服务脚本中；网页只在本页内存保留它，刷新页面或重启服务后需重新粘贴。服务只监听 `127.0.0.1`，不会向局域网开放。端口占用时，可在运行命令末尾加 `--port 18766`，同时修改网页本地地址。网页来源变化后需停止服务，再用新来源启动。
 
+## 通过代理访问 API
+
+API 需要经代理（例如 Clash、公司代理）访问时：
+
+- Node.js / Python：在命令末尾加 `--proxy http://127.0.0.1:7890`（换成实际代理地址，支持 `http://用户名:密码@主机:端口`）。不加时读取 `HTTPS_PROXY`、`HTTP_PROXY`、`ALL_PROXY` 环境变量，并遵守 `NO_PROXY`。仅支持 HTTP 代理（HTTPS 目标经 CONNECT 隧道）；SOCKS 代理请改用代理软件提供的 HTTP 端口。
+- Windows PowerShell：自动使用系统代理设置。
+- 发往本机的目标（`localhost`、`127.x`、`::1`，例如本地模型服务）始终直连。启动时终端会显示当前使用的代理，不显示代理密码。
+
+`--origin` 必须与浏览器发送的来源完全一致：主机名小写，不写默认端口（`:443` / `:80`），不带路径。
+
 HTTPS 网页可连接 HTTP 回环地址。浏览器可能要求允许当前站点的本地网络／回环网络访问；站点 CSP 或组织策略仍可能阻止连接。参考 [Chrome Local Network Access 说明](https://developer.chrome.com/docs/modern-web-guidance/guides/security/local-network-access)。
 
 PowerShell 命令的 `ExecutionPolicy Bypass` 只作用于这次进程，不修改系统持久设置。组织策略禁止运行时，应检查策略要求；服务不会修改策略或系统代理。

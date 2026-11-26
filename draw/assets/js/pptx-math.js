@@ -13,6 +13,8 @@
     if(colors[source])return colors[source];
     if(/^#[\da-f]{6}$/i.test(source))return source.slice(1).toUpperCase();
     if(/^#[\da-f]{3}$/i.test(source))return source.slice(1).split('').map(character=>character+character).join('').toUpperCase();
+    const parsed=global.FlowSketchPptx?.parseColor?.(source);
+    if(parsed&&parsed.alpha===1)return parsed.hex;
     throw Error('Unsupported math color');
   }
   function drawingProperties(style){

@@ -472,10 +472,10 @@ When generating a drawing, select colors directly from one base palette and use 
 When a user applies a theme, the engine recolors elements as follows:
 
 - Connectors use color slot 1.
-- Plain text and formulas use color slot 1 for text or formula color.
+- Plain text and formulas use color slot 1; when their center sits over a dark shape, white is used instead to keep contrast.
 - Notes use color slot 4 for fill, a darker derivative for the outline, and color slot 1 for text.
-- Rectangles used as group backgrounds use color slot 5 for fill, color slot 2 for the outline, and color slot 1 for text.
-- Other elements primarily alternate between slots 2 and 3, with some elements using slot 4 as an accent.
+- Rectangles used as group backgrounds — unrotated rectangles that fully contain at least one later-layer element other than text or connectors — use color slot 5 for fill, color slot 2 for the outline, and color slot 1 for text, regardless of their layer index.
+- Other elements alternate fills between slots 2 and 3 by layer index, with some outlines using slot 4 as an accent; their text uses whichever of slot 1 or white has higher contrast.
 
 ## Composition Guidance
 

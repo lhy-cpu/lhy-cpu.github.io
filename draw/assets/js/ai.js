@@ -461,6 +461,7 @@
       notice('已达到本轮修改次数上限。已应用的修改已保留，可以继续对话。');$('aiStatus').textContent='本轮结束';
     }catch(e){
       if(pending){pending.node.classList.remove('pending');if(pending.body.textContent==='正在思考…')pending.body.textContent='回复中断。';}
+      if(!applied){const index=turns.lastIndexOf(turn);if(index>=0)turns.splice(index,1);pruneAssets();}
       const interrupted=/连接失败|流意外中断|缺少结束标记|Failed to fetch|network/i.test(e.message||'');
       const detail=timedOut?`请求超过 ${requestConfig.timeoutSeconds} 秒，已停止。`:signal.aborted?(stopReason==='document'?'已切换文件，停止当前生成。':'已停止生成。'):e instanceof SyntaxError?'AI 返回的编辑 JSON 无法解析，未应用本批修改。':interrupted?`${e.message} 页面总时限为 ${requestConfig.timeoutSeconds} 秒；也可检查上游或 Nginx 的 proxy_read_timeout，当前信息无法确定中断原因。`:e.message;
       const failure=notice(detail+(applied?' 已完成的修改仍保留，可撤销。':''),!signal.aborted);

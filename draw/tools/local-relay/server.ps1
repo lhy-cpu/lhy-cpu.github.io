@@ -27,7 +27,8 @@ try {
 
 Add-Type -AssemblyName System.Net.Http
 Add-Type -AssemblyName System.Web.Extensions
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$relayProtocols = [Net.ServicePointManager]::SecurityProtocol
+if ([int]$relayProtocols -ne 0) { [Net.ServicePointManager]::SecurityProtocol = $relayProtocols -bor [Net.SecurityProtocolType]::Tls12 }
 [Net.ServicePointManager]::DefaultConnectionLimit = 64
 # Include framework references explicitly: custom reference lists replace the
 # compiler defaults on some Windows PowerShell versions.

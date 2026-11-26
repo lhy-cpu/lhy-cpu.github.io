@@ -288,3 +288,63 @@ test('zero-length curve lead-ins use the next nonzero tangent for arrow controls
   const from=context.connectorArrowTangent({},'from');assert.ok(Math.abs(from.x+40/Math.hypot(40,100))<1e-10);assert.ok(Math.abs(from.y+100/Math.hypot(40,100))<1e-10);
   const to=context.connectorArrowTangent({},'to');assert.equal(to.x,1);assert.equal(to.y,0);
 });
+function themeHarness(elements,{theme=['#0b2d5c','#165d9c','#e8f1fb','#f69d3c','#ffffff'],bg='#ffffff',selection=null}={}){
+  const toasts=[],context={project:{canvas:{theme:0,bg},elements},themes:[{colors:theme}],toast:m=>toasts.push(m),commit(){},render(){},
+    selectedElements:()=>elements.filter(e=>selection?.includes(e.id)),clamp:(v,a,b)=>Math.max(a,Math.min(b,v))};
+  const start=html.indexOf('  function adjust('),adjustSrc=html.slice(start,html.indexOf('\n',start));
+  const themeStart=html.indexOf('  function themeRGB('),themeEnd=html.indexOf('\n',html.indexOf('  function applyTheme(',themeStart));
+  vm.createContext(context);vm.runInContext(adjustSrc+'\n'+html.slice(themeStart,themeEnd),context);
+  return {apply:scope=>context.applyTheme(scope),toasts};
+}
+const rect=(id,x,y,w,h,extra={})=>({id,type:'basicShape',shapeKind:'rect',x,y,w,h,rotation:0,visible:true,fill:'#000000',stroke:'#000000',textColor:'#000000',...extra});
+test('applying a theme keeps a container rectangle as a neutral group background regardless of layer index',()=>{
+  const panel=rect('panel',0,0,400,300,{dash:true}),inner=rect('inner',40,40,120,60),title={id:'title',type:'text',x:40,y:200,w:200,h:30,visible:true,textColor:'#123456'};
+  const h=themeHarness([panel,inner,title]);h.apply('all');
+  assert.equal(panel.fill,'#ffffff');assert.equal(panel.stroke,'#165d9c');assert.equal(panel.textColor,'#0b2d5c');
+  assert.equal(title.textColor,'#0b2d5c');assert.deepEqual(h.toasts,['主题已应用到全部元素']);
+});
+test('applying a theme picks readable text on strong fills and for free text placed over them',()=>{
+  const strong=rect('strong',0,0,200,80),label={id:'label',type:'text',x:20,y:20,w:160,h:40,visible:true,textColor:'#000000'};
+  const solo=rect('solo',300,0,200,80),plain=rect('plain',600,0,200,80);
+  themeHarness([strong,label,solo,plain,rect('n4',900,0,50,50),rect('n5',1000,0,50,50)]).apply('all');
+  assert.equal(strong.fill,'#165d9c');assert.equal(strong.textColor,'#ffffff');assert.equal(label.textColor,'#ffffff');
+  assert.equal(solo.fill,'#e8f1fb');assert.equal(solo.textColor,'#0b2d5c');
+  const pale=rect('pale',0,0,200,80);themeHarness([pale],{theme:['#3f3f46','#fde68a','#fffbeb','#f59e0b','#ffffff']}).apply('all');
+  assert.equal(pale.fill,'#fde68a');assert.equal(pale.textColor,'#3f3f46');
+});
+test('applying a theme to a selection only recolours the selected elements',()=>{
+  const a=rect('a',0,0,100,50),b=rect('b',200,0,100,50,{fill:'#abcdef'});
+  const h=themeHarness([a,b],{selection:['a']});h.apply('selection');
+  assert.equal(a.fill,'#165d9c');assert.equal(b.fill,'#abcdef');assert.deepEqual(h.toasts,['主题已应用到 1 个所选元素']);
+});
+function sanitizeHarness(project){
+  const context={project,clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),uid:(()=>{let n=0;return()=>'gen'+(++n)})()};
+  const start=html.indexOf('  const SAFE_ID='),end=html.indexOf('  function normalize(){',start);
+  vm.createContext(context);vm.runInContext(html.slice(start,end)+';this.api={safeCSSColor,sanitizeCanvas,sanitizeElement,sanitizeReferences};',context);
+  return context.api;
+}
+const injected='red"><img src=x onerror=alert(1)>';
+test('imported colours, numbers, fonts and enums cannot carry markup into the editor',()=>{
+  const api=sanitizeHarness({});
+  for(const ok of ['#fff','#eff6ff','#11223344','transparent','navy','rgb(16, 185, 129)','hsl(0 0% 20% / .5)'])assert.equal(api.safeCSSColor(ok,'#000000'),ok);
+  for(const bad of [injected,'url(x)','red;background:url(x)','expression(1)',42,null])assert.equal(api.safeCSSColor(bad,'#000000'),'#000000');
+  const canvas={width:'1e9',height:injected,bg:injected,gridSize:'7',theme:'3.6',grid:'yes',snap:0};api.sanitizeCanvas(canvas);
+  assert.deepEqual({...canvas},{width:6000,height:900,bg:'#ffffff',gridSize:7,theme:4,grid:false,snap:true});
+  const e={type:injected,x:injected,y:'12',w:'0',opacity:'2',fontSize:true,fill:injected,stroke:'#123456',textColor:injected,fontFamily:'Inter"><script>',align:injected,vAlign:'top',shapeKind:injected,fromSide:injected,text:5,dash:'1',arrowWidth:null};
+  api.sanitizeElement(e);
+  assert.equal(e.type,'basicShape');assert.equal(e.x,0);assert.equal(e.y,12);assert.equal(e.w,1);assert.equal(e.opacity,1);assert.equal(e.fontSize,18);
+  assert.equal(e.fill,'#eff6ff');assert.equal(e.stroke,'#123456');assert.equal(e.textColor,'#172554');assert.equal(e.fontFamily,'Interscript');
+  assert.equal(e.align,'center');assert.equal(e.vAlign,'top');assert.equal(e.shapeKind,'rect');assert.equal(e.fromSide,null);assert.equal(e.text,'5');assert.equal(e.dash,false);assert.equal(e.arrowWidth,null);
+  for(const legacy of ['rect','roundRect','ellipse','diamond','group']){const old={type:legacy};api.sanitizeElement(old);assert.equal(old.type,legacy)}
+  const pooled={type:'tokenGrid',poolColors:[[injected,12.6,300,'128'],'#fff',[1,2]],colorImage:{src:injected}};api.sanitizeElement(pooled);
+  assert.deepEqual(pooled.poolColors.map(c=>[...c]),[[0,13,255,128],[0,0,0,255],[1,2,0,255]]);assert.equal('colorImage' in pooled,false);
+  const bogus={type:'tokenGrid',poolColors:injected};api.sanitizeElement(bogus);assert.equal('poolColors' in bogus,false);
+});
+test('unsafe element and group IDs are replaced while connector and group references follow',()=>{
+  const project={elements:[{id:'a"><b',type:'basicShape'},{id:'ok',type:'basicShape'},{id:'ok',type:'basicShape'},{id:'k',type:'connector',fromId:'a"><b',toId:'missing'},{id:'m',type:'basicShape',groupId:'g"x'}],groups:[{id:'g"x',name:injected,memberIds:['a"><b','m','nope']}]};
+  sanitizeHarness(project).sanitizeReferences();
+  const [a,ok,dup,k,m]=project.elements;
+  assert.match(a.id,/^gen/);assert.equal(ok.id,'ok');assert.notEqual(dup.id,'ok');
+  assert.equal(k.fromId,a.id);assert.equal(k.toId,null);
+  const [g]=project.groups;assert.match(g.id,/^gen/);assert.deepEqual(g.memberIds,[a.id,'m']);assert.equal(m.groupId,g.id);assert.equal(g.name,injected);
+});

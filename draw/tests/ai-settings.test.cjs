@@ -624,3 +624,19 @@ test('editing relay configuration cancels a stale in-flight connection test', as
   release();await check;
   assert.equal(h.get('aiRelayStatus').textContent,'');
 });
+
+test('a failed request that applied nothing is not repeated in the next request context', async () => {
+  let attempt = 0;
+  const h = harness({apiUrl:'https://api.example/v1',key:'k',model:'m',mode:'json',stream:false,historyTurns:24}, async () => {
+    attempt++; if (attempt === 1) throw new Error('上游连接失败'); return { content: '好的' };
+  });
+  await h.send('第一次请求');
+  await h.send('第一次请求');
+  const texts = h.calls[1].messages.filter(m => m.role === 'user').map(m => typeof m.content === 'string' ? m.content : m.content[0].text);
+  assert.equal(texts.filter(t => t.startsWith('第一次请求')).length, 1);
+  await h.send('第二个问题');
+  const history = h.calls[2].messages.slice(1);
+  assert.equal(history.length, 3);
+  assert.equal(history[1].content, '好的');
+  assert.equal(history[2].role, 'user');
+});
