@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 MAX_BODY = 40 * 1024 * 1024
 MAX_TIME = 3600
+DEFAULT_ORIGINS = ('https://draw.lhye.work', 'https://github.lhye.work', 'null')
 
 
 def exact_origin(value):
@@ -84,11 +85,12 @@ def proxy_settings(explicit, env):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--origin', required=True)
+    parser.add_argument('--origin', action='append', dest='origins')
     parser.add_argument('--port', type=int, default=18765)
     parser.add_argument('--proxy')
     args = parser.parse_args()
-    if not exact_origin(args.origin):
+    origins = tuple(dict.fromkeys(args.origins)) if args.origins else DEFAULT_ORIGINS
+    if not all(exact_origin(origin) for origin in origins):
         parser.error('--origin must be the exact webpage origin (lowercase host, no default port or path), or null for file://')
     if not 1 <= args.port <= 65535:
         parser.error('--port must be 1..65535')
@@ -114,8 +116,8 @@ def main():
         def reply(self, status, message=None, headers=None, raw=None):
             body = raw if raw is not None else json.dumps({'error': message}).encode()
             self.send_response(status)
-            if self.headers.get('Origin') == args.origin:
-                self.send_header('Access-Control-Allow-Origin', args.origin)
+            if self.headers.get('Origin') in origins:
+                self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
                 self.send_header('Access-Control-Expose-Headers', 'X-FlowSketch-Relay-Error')
                 self.send_header('Vary', 'Origin')
             self.send_header('Cache-Control', 'no-store')
@@ -169,7 +171,7 @@ def main():
             timeout.start()
             try:
                 self.connection.settimeout(30)
-                if self.headers.get('Host') not in (f'127.0.0.1:{args.port}', f'localhost:{args.port}', f'[::1]:{args.port}') or self.headers.get('Origin') != args.origin:
+                if self.headers.get('Host') not in (f'127.0.0.1:{args.port}', f'localhost:{args.port}', f'[::1]:{args.port}') or self.headers.get('Origin') not in origins:
                     return self.reply(403, 'Origin or Host rejected.')
                 if self.path not in ('/health', '/proxy'):
                     return self.reply(404, 'Not found.')
@@ -245,7 +247,7 @@ def main():
                 upstream.request('POST', request_path, body, headers)
                 response = upstream.getresponse()
                 self.send_response(response.status)
-                self.send_header('Access-Control-Allow-Origin', args.origin)
+                self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
                 self.send_header('Access-Control-Expose-Headers', 'X-FlowSketch-Relay-Error')
                 self.send_header('Vary', 'Origin')
                 self.send_header('Cache-Control', 'no-store')
@@ -285,7 +287,8 @@ def main():
         server = QuietServer(('127.0.0.1', args.port), Handler)
     except OSError:
         parser.exit(1, 'Cannot start relay. Check that the port is available.\n')
-    print(f'FlowSketch local relay: http://127.0.0.1:{args.port}\nAllowed webpage origin: {args.origin}\nToken (paste into AI settings): {token}\n{proxy_info}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.', flush=True)
+    allowed = ', '.join(origins)
+    print(f'FlowSketch local relay: http://127.0.0.1:{args.port}\nAllowed webpage origins: {allowed}\nToken (paste into AI settings): {token}\n{proxy_info}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

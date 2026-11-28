@@ -38,6 +38,27 @@ test('python relay rejects origins that browsers never send', { skip: !pythonAva
     }
 });
 
+test('python relay allows built-in origins by default and echoes the request origin', { skip: !pythonAvailable && 'Python 3 is unavailable' }, async t => {
+    const holder = net.createServer(); holder.listen(0, '127.0.0.1'); await once(holder, 'listening');
+    const port = holder.address().port; await new Promise(resolve => holder.close(resolve));
+    const child = spawn('python3', [path.join(RELAYS, 'server.py'), '--port', String(port)], { stdio: ['ignore', 'pipe', 'pipe'] });
+    t.after(() => child.kill());
+    let output = '';
+    const token = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('relay startup timeout: ' + output)), 5000);
+        child.stdout.on('data', b => { output += b; const m = output.match(/Token \(paste into AI settings\): ([a-f0-9]+)/); if (m) { clearTimeout(timer); resolve(m[1]); } });
+        child.once('exit', code => { clearTimeout(timer); reject(new Error(`relay exited ${code}`)); });
+    });
+    assert.match(output, /Allowed webpage origins: https:\/\/draw\.lhye\.work, https:\/\/github\.lhye\.work, null/);
+    const health = origin => new Promise((resolve, reject) => {
+        http.get({ host: '127.0.0.1', port, path: '/health', headers: { Origin: origin, 'X-FlowSketch-Token': token } }, res => {
+            res.resume(); res.on('end', () => resolve({ status: res.statusCode, allow: res.headers['access-control-allow-origin'] }));
+        }).on('error', reject);
+    });
+    for (const origin of ['https://draw.lhye.work', 'https://github.lhye.work', 'null']) assert.deepEqual(await health(origin), { status: 200, allow: origin });
+    assert.equal((await health(ORIGIN)).status, 403);
+});
+
 function certificate(dir) {
     const key = path.join(dir, 'key.pem'), cert = path.join(dir, 'cert.pem');
     const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=upstream.test', '-addext', 'subjectAltName=DNS:upstream.test'], { stdio: 'ignore' });

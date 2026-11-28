@@ -21,11 +21,21 @@ test('manual commands use native Windows and Node downloads, with exact Python s
   const unix = relay.commands('macos','https://example.com',source);
   assert.equal(unix.primary,"node ./server.cjs --origin 'https://example.com'");
   assert.equal(unix.paste,"python3 - --origin 'https://example.com' <<'FLOWSKETCH_RELAY_PY'\n"+source+'\nFLOWSKETCH_RELAY_PY');
-  const windows = relay.commands('windows','null',source);
-  assert.equal(windows.primary,"powershell -NoProfile -ExecutionPolicy Bypass -File .\\server.ps1 --origin 'null'");
-  assert.equal(windows.paste,"@'\n"+source+"\n'@ | py -3 - --origin 'null'");
-  assert.equal(windows.python,"py -3 ./server.py --origin 'null'");
+  const windows = relay.commands('windows','http://127.0.0.1:8765',source);
+  assert.equal(windows.primary,"powershell -NoProfile -ExecutionPolicy Bypass -File .\\server.ps1 --origin 'http://127.0.0.1:8765'");
+  assert.equal(windows.paste,"@'\n"+source+"\n'@ | py -3 - --origin 'http://127.0.0.1:8765'");
+  assert.equal(windows.python,"py -3 ./server.py --origin 'http://127.0.0.1:8765'");
   assert.doesNotMatch(unix.paste, /curl|wget|Invoke-WebRequest/);
+});
+test('built-in origins need no --origin argument', () => {
+  for (const origin of ['https://draw.lhye.work','https://github.lhye.work','null']) {
+    const unix = relay.commands('linux',origin,source), windows = relay.commands('windows',origin,source);
+    assert.equal(unix.primary,'node ./server.cjs');
+    assert.equal(unix.python,'python3 ./server.py');
+    assert.equal(unix.paste,"python3 - <<'FLOWSKETCH_RELAY_PY'\n"+source+'\nFLOWSKETCH_RELAY_PY');
+    assert.equal(windows.primary,'powershell -NoProfile -ExecutionPolicy Bypass -File .\\server.ps1');
+    assert.equal(windows.paste,"@'\n"+source+"\n'@ | py -3 -");
+  }
 });
 test('source validation rejects HTML, oversized source and shell delimiter collisions', () => {
   assert.equal(relay.validateSource(source), source);

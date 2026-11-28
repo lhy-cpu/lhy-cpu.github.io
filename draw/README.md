@@ -93,7 +93,7 @@ AI 修改经过字段、引用与规模校验，支持撤销/重做；用户手�
 
 直连时，跨源 AI 接口须支持网页来源的 CORS 请求及 `Content-Type`、`Authorization` 请求头；HTTPS 页面访问普通非回环 HTTP 接口也可能被浏览器拦截。网络/CORS 失败后可点「使用本地转发」，或从 AI 设置打开下载帮助。居中弹窗自动选中当前系统的 Windows/macOS/Linux 标签，也可手动切换。按已有环境下载**一个独立服务文件**：Windows 使用 [server.ps1](tools/local-relay/server.ps1)，macOS/Linux 有 Node.js 时使用 [server.cjs](tools/local-relay/server.cjs)，否则可选 [server.py](tools/local-relay/server.py)（需 Python 3）。无需 ZIP、额外启动脚本或安装软件。
 
-在下载目录执行弹窗显示的命令，来源使用当前网页来源（`file://` 用 `null`）。例如 Windows：`powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1 --origin https://draw.lhye.work`；Node.js：`node ./server.cjs --origin https://draw.lhye.work`；Python：`python3 ./server.py --origin https://draw.lhye.work`（Windows 可用 `py -3`）。服务自行生成启动令牌。
+在下载目录执行弹窗显示的命令。服务默认允许 `https://draw.lhye.work`、`https://github.lhye.work` 和 `file://` 页面，无需参数：Windows `powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1`；Node.js `node ./server.cjs`；Python `python3 ./server.py`（Windows 可用 `py -3`）。部署到其他网址时加 `--origin 当前来源`（可重复）。服务自行生成启动令牌。
 
 已有 Python 3 时，也可展开弹窗中的免下载选项，查看并复制完整服务源码及启动文本，直接粘贴到对应的 macOS/Linux shell 或 Windows PowerShell，无需保存文件。展开 Python 免下载区域时，网页仅从同一托管来源读取 `server.py` 文本，不执行该代码；`file://` 无法读取时会提示改用下载。
 

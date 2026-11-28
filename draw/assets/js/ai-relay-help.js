@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   const MAX_SOURCE = 65536;
+  const DEFAULT_ORIGINS = ['https://draw.lhye.work', 'https://github.lhye.work', 'null'];
   function detectOS(nav) {
     const platform = nav.userAgentData?.platform || nav.platform || nav.userAgent || '';
     if (/android|iphone|ipad|ipod/i.test(nav.userAgent || '') || (/Mac/i.test(platform) && nav.maxTouchPoints > 1)) return 'other';
@@ -19,11 +20,11 @@
   function quote(value) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
   function commands(os, origin, source) {
     origin = originValue(origin);
-    const q = quote(origin);
+    const arg = DEFAULT_ORIGINS.includes(origin) ? '' : ' --origin ' + quote(origin);
     return {
-      primary: os === 'windows' ? 'powershell -NoProfile -ExecutionPolicy Bypass -File .\\server.ps1 --origin ' + q : 'node ./server.cjs --origin ' + q,
-      python: (os === 'windows' ? 'py -3' : 'python3') + ' ./server.py --origin ' + q,
-      paste: source === undefined ? '' : os === 'windows' ? "@'\n" + source + "\n'@ | py -3 - --origin " + q : 'python3 - --origin ' + q + " <<'FLOWSKETCH_RELAY_PY'\n" + source + '\nFLOWSKETCH_RELAY_PY'
+      primary: (os === 'windows' ? 'powershell -NoProfile -ExecutionPolicy Bypass -File .\\server.ps1' : 'node ./server.cjs') + arg,
+      python: (os === 'windows' ? 'py -3' : 'python3') + ' ./server.py' + arg,
+      paste: source === undefined ? '' : os === 'windows' ? "@'\n" + source + "\n'@ | py -3 -" + arg : 'python3 -' + arg + " <<'FLOWSKETCH_RELAY_PY'\n" + source + '\nFLOWSKETCH_RELAY_PY'
     };
   }
   function validateSource(source) {

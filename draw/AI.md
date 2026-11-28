@@ -55,18 +55,20 @@ proxy_read_timeout 600s;
 默认使用「直连接口」。遇到网络/CORS 失败时点击「使用本地转发」，或从 AI 设置打开下载帮助，会显示与「FlowSketch 使用帮助」相同形式的居中弹窗。弹窗按当前系统自动选中 Windows、macOS 或 Linux 标签，也可手动切换：
 
 1. 在对应系统标签按已有运行环境下载**一个独立服务文件**，在下载目录打开终端；也可使用下方 Python 免下载方案。
-2. 复制弹窗给出的启动命令。来源须精确匹配当前网页的协议、主机和端口，不含路径或末尾 `/`。以下以 `https://draw.lhye.work` 为例，实际运行时换成弹窗显示的来源；`file://` 页面使用 `null`：
+2. 复制弹窗给出的启动命令。服务默认允许 `https://draw.lhye.work`、`https://github.lhye.work` 和直接打开的 `file://` 页面，这三种来源无需任何参数，直接运行即可：
 
    | 系统 / 已有环境 | 单文件下载 | 启动命令 |
    | --- | --- | --- |
-   | Windows 系统 PowerShell/.NET | [server.ps1](tools/local-relay/server.ps1) | `powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1 --origin https://draw.lhye.work` |
-   | macOS/Linux 或已有 Node.js | [server.cjs](tools/local-relay/server.cjs) | `node ./server.cjs --origin https://draw.lhye.work` |
-   | 没有 Node.js，但有 Python 3 | [server.py](tools/local-relay/server.py) | `python3 ./server.py --origin https://draw.lhye.work`（Windows 可用 `py -3` 代替 `python3`） |
+   | Windows 系统 PowerShell/.NET | [server.ps1](tools/local-relay/server.ps1) | `powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1` |
+   | macOS/Linux 或已有 Node.js | [server.cjs](tools/local-relay/server.cjs) | `node ./server.cjs` |
+   | 没有 Node.js，但有 Python 3 | [server.py](tools/local-relay/server.py) | `python3 ./server.py`（Windows 可用 `py -3` 代替 `python3`） |
+
+   自行部署到其他网址时，在命令末尾加 `--origin 当前来源`（精确匹配协议、主机和端口，不含路径或末尾 `/`，可重复指定多个），弹窗会自动带上该参数；指定后只允许所列来源。
 
 3. 服务自行生成本次启动令牌，无需在命令中设置。保持终端运行，把终端输出的令牌粘贴到 AI 设置；选择「本地转发」，填写回环地址（默认 `http://127.0.0.1:18765`），点击「测试本地连接」。测试仅访问服务的 `GET /health`，不会调用模型。
-4. API URL、Key 和模型仍填写原供应商配置；转发地址单独设置，不要用它替换 API URL。测试成功后发送消息，结束使用时在终端按 `Ctrl+C` 停止服务。更换网页来源后须重启服务。
+4. API URL、Key 和模型仍填写原供应商配置；转发地址单独设置，不要用它替换 API URL。测试成功后发送消息，结束使用时在终端按 `Ctrl+C` 停止服务。使用自定义来源时，更换网页来源后须重启服务。
 
-**Python 免下载运行**：已有 Python 3 时，在弹窗展开该选项，查看并复制包含完整服务源码的文本，直接粘贴到对应终端运行，无需下载或保存文件。macOS/Linux 文本使用 `python3 - --origin 当前来源` 和 here-document；Windows 文本使用 PowerShell here-string 管道到 `py -3 - --origin 当前来源`，请在对应 shell 中执行。页面仅在展开 Python 免下载区域时从当前托管来源读取 `server.py` 纯文本，不在网页内执行代码。直接打开 `file://` 时浏览器可能禁止读取文本，此时弹窗会提示改用单文件下载。
+**Python 免下载运行**：已有 Python 3 时，在弹窗展开该选项，查看并复制包含完整服务源码的文本，直接粘贴到对应终端运行，无需下载或保存文件。macOS/Linux 文本使用 `python3 -` 和 here-document；Windows 文本使用 PowerShell here-string 管道到 `py -3 -`（自定义来源时附加 `--origin 当前来源`），请在对应 shell 中执行。页面仅在展开 Python 免下载区域时从当前托管来源读取 `server.py` 纯文本，不在网页内执行代码。直接打开 `file://` 时浏览器可能禁止读取文本，此时弹窗会提示改用单文件下载。
 
 三个文件各自独立运行，不自动选择运行环境或安装软件。服务只监听本机回环地址，并校验精确网页来源和随机启动令牌；网页只接受回环转发地址。粘贴的令牌仅留在当前页面内存，刷新页面或重启服务后需重新填写，不写入 `localStorage` 或项目。
 

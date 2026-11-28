@@ -137,8 +137,8 @@ test('persistent SSE validates UTF-8 and byte limit of the complete buffered chu
   const invalid = persistentStream(partialUTF8);
   await assert.rejects(promptly(streamRequest(client(async () => invalid.response))), /不完整的 UTF-8/);
   assert.equal(invalid.cancelled, true);
-  const oversized = persistentStream(event({}, 'stop') + 'data: [DONE]\n\n:' + 'x'.repeat(2 * 1024 * 1024));
-  await assert.rejects(promptly(streamRequest(client(async () => oversized.response))), /2MB/);
+  const oversized = persistentStream(event({}, 'stop') + 'data: [DONE]\n\n:' + 'x'.repeat(100 * 1024 * 1024));
+  await assert.rejects(promptly(streamRequest(client(async () => oversized.response))), /100MB/);
   assert.equal(oversized.cancelled, true);
 });
 
@@ -203,7 +203,7 @@ test('abort signal forwarded and cancellation has safe message', async () => {
 });
 
 test('response and tool argument size limits', async () => {
-  await assert.rejects(request(client(async () => json(wire('x'.repeat(2 * 1024 * 1024))))), /2MB/);
+  await assert.rejects(request(client(async () => json(wire('x'.repeat(100 * 1024 * 1024))))), /100MB/);
   const calls = [{ id: 'a', type: 'function', function: { name: 'draw', arguments: 'x'.repeat(1024 * 1024 + 1) } }];
   await assert.rejects(request(client(async () => json(wire(null, 'tool_calls', calls)))), /1MB/);
   const payload = event({ tool_calls: [{ index: 0, id: 'a', function: { name: 'draw', arguments: 'x'.repeat(1024 * 1024 + 1) } }] }, 'tool_calls');

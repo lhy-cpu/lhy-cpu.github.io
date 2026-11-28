@@ -1,7 +1,7 @@
 (function (root) {
   'use strict';
 
-  const RESPONSE_LIMIT = 2 * 1024 * 1024;
+  const RESPONSE_LIMIT = 100 * 1024 * 1024;
   const ARGUMENT_LIMIT = 1024 * 1024;
   const CALL_LIMIT = 100;
   const encoder = new TextEncoder();
@@ -108,7 +108,7 @@
         const part = await reader.read();
         if (part.done) break;
         bytes += part.value.byteLength;
-        if (bytes > RESPONSE_LIMIT) throw fail('API 响应超过 2MB 限制。');
+        if (bytes > RESPONSE_LIMIT) throw fail('API 响应超过 100MB 限制。');
         let text;
         try { text = decoder.decode(part.value, { stream: true }); } catch (_) { throw fail('API 响应不是有效的 UTF-8 文本。'); }
         // The consumer inspects the whole decoded chunk before signalling its

@@ -8,20 +8,23 @@ const tls = require('node:tls');
 const net = require('node:net');
 const MAX_BODY = 40 * 1024 * 1024;
 const MAX_TIME = 3600 * 1000;
+const DEFAULT_ORIGINS = Object.freeze(['https://draw.lhye.work', 'https://github.lhye.work', 'null']);
 
 function parseArgs(args) {
-    const options = { port: 18765 };
+    const options = { port: 18765 }, origins = [];
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--origin') options.origin = args[++i];
+        if (args[i] === '--origin') origins.push(args[++i]);
         else if (args[i] === '--port') options.port = Number(args[++i]);
         else if (args[i] === '--proxy') options.proxy = args[++i];
-        else throw new Error('Usage: --origin https://your-page.example [--port 18765] [--proxy http://127.0.0.1:7890]');
+        else throw new Error('Usage: [--origin https://your-page.example ...] [--port 18765] [--proxy http://127.0.0.1:7890]');
     }
-    if (options.origin !== 'null') {
+    for (const origin of origins) {
+        if (origin === 'null') continue;
         let url;
-        try { url = new URL(options.origin); } catch { throw new Error('Supply --origin with the exact webpage origin, or null for file://.'); }
-        if (!['http:', 'https:'].includes(url.protocol) || url.origin !== options.origin) throw new Error('--origin must be an exact HTTP(S) origin without a path.');
+        try { url = new URL(origin); } catch { throw new Error('Supply --origin with the exact webpage origin, or null for file://.'); }
+        if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) throw new Error('--origin must be an exact HTTP(S) origin without a path.');
     }
+    options.origins = origins.length ? [...new Set(origins)] : DEFAULT_ORIGINS;
     if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) throw new Error('--port must be 1..65535.');
     if (options.proxy !== undefined) parseProxy(options.proxy, '--proxy');
     return options;
@@ -102,7 +105,7 @@ function sendUpstream(target, proxy, headers, body, onResponse, onError) {
     return { destroy: () => { connect.destroy(); request?.destroy(); } };
 }
 
-function createRelay({ origin, token = crypto.randomBytes(32).toString('hex'), port = 18765, maxTime = MAX_TIME, proxy, env = process.env }) {
+function createRelay({ origins = DEFAULT_ORIGINS, token = crypto.randomBytes(32).toString('hex'), port = 18765, maxTime = MAX_TIME, proxy, env = process.env }) {
     const proxies = proxySettings(proxy, env);
     const server = http.createServer((req, res) => {
         res.setHeader('Connection', 'close');
@@ -112,7 +115,8 @@ function createRelay({ origin, token = crypto.randomBytes(32).toString('hex'), p
             if (!res.headersSent) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-FlowSketch-Relay-Error': '1' }); res.end(JSON.stringify({ error: message })); }
             else res.destroy();
         };
-        if (!hostOK || req.headers.origin !== origin) return reply(403, 'Origin or Host rejected.');
+        const origin = req.headers.origin;
+        if (!hostOK || !origins.includes(origin)) return reply(403, 'Origin or Host rejected.');
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Expose-Headers', 'X-FlowSketch-Relay-Error');
         res.setHeader('Vary', 'Origin');
@@ -191,8 +195,8 @@ if (require.main === module) {
         const { server, token, proxyInfo } = createRelay(options);
         server.on('error', () => { console.error('Cannot start relay. Check that the port is available.'); process.exitCode = 1; });
         server.listen(options.port, '127.0.0.1', () => {
-            console.log(`FlowSketch local relay: http://127.0.0.1:${options.port}\nAllowed webpage origin: ${options.origin}\nToken (paste into AI settings): ${token}\n${proxyInfo}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.`);
+            console.log(`FlowSketch local relay: http://127.0.0.1:${options.port}\nAllowed webpage origins: ${options.origins.join(', ')}\nToken (paste into AI settings): ${token}\n${proxyInfo}\nKeep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.`);
         });
     } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
-module.exports = { createRelay, parseArgs, proxySettings };
+module.exports = { createRelay, parseArgs, proxySettings, DEFAULT_ORIGINS };

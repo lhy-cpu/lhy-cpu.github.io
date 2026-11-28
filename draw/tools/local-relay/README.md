@@ -6,29 +6,29 @@
 - macOS / Linux 已有 Node.js 时，下载 `server.cjs`；此文件也能在已有 Node.js 的 Windows 上运行。
 - 前述环境不可用时，下载 `server.py`，使用 Python 3。
 
-在下载文件所在目录打开终端，选择对应命令。将示例网页来源 `https://draw.example` 替换为网页设置中显示的准确来源：
+在下载文件所在目录打开终端，选择对应命令。默认允许 `https://draw.lhye.work`、`https://github.lhye.work` 和直接打开的 `file://` 页面，无需任何参数：
 
 Windows PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1 --origin https://draw.example
+powershell -NoProfile -ExecutionPolicy Bypass -File .\server.ps1
 ```
 
 已有 Node.js：
 
 ```sh
-node ./server.cjs --origin https://draw.example
+node ./server.cjs
 ```
 
 最后回退到 Python 3：
 
 ```sh
-python3 ./server.py --origin https://draw.example
+python3 ./server.py
 ```
 
-Windows 的 Python 也可以使用 `py -3 .\server.py --origin https://draw.example`。
+Windows 的 Python 也可以使用 `py -3 .\server.py`。
 
-来源必须精确匹配协议、主机和端口，不含路径、末尾斜杠或通配符。例如 `https://draw.example/editor/index.html` 的来源为 `https://draw.example`；本机网页可能为 `http://127.0.0.1:8765`；直接打开 `file://` 页面时使用 `--origin null`。
+部署到其他网址时，在命令末尾加 `--origin 来源`，可重复指定多个；指定后只允许所列来源，不再包含默认值。来源必须精确匹配协议、主机和端口，不含路径、末尾斜杠或通配符。例如 `https://draw.example/editor/index.html` 的来源为 `https://draw.example`；本机网页可能为 `http://127.0.0.1:8765`；`file://` 页面为 `null`。
 
 ## 连接网页
 
@@ -39,7 +39,7 @@ Windows 的 Python 也可以使用 `py -3 .\server.py --origin https://draw.exam
 3. API URL、API Key 和模型仍填写供应商的原始配置，重新发送消息即可。
 4. 使用完毕，在终端按 `Ctrl+C` 停止服务。网页关闭或刷新不会停止服务进程。
 
-Token 不是供应商 API Key，不用填写到服务脚本中；网页只在本页内存保留它，刷新页面或重启服务后需重新粘贴。服务只监听 `127.0.0.1`，不会向局域网开放。端口占用时，可在运行命令末尾加 `--port 18766`，同时修改网页本地地址。网页来源变化后需停止服务，再用新来源启动。
+Token 不是供应商 API Key，不用填写到服务脚本中；网页只在本页内存保留它，刷新页面或重启服务后需重新粘贴。服务只监听 `127.0.0.1`，不会向局域网开放。端口占用时，可在运行命令末尾加 `--port 18766`，同时修改网页本地地址。使用自定义来源时，网页来源变化后需停止服务，再用新来源启动。
 
 ## 通过代理访问 API
 
@@ -49,7 +49,7 @@ API 需要经代理（例如 Clash、公司代理）访问时：
 - Windows PowerShell：自动使用系统代理设置。
 - 发往本机的目标（`localhost`、`127.x`、`::1`，例如本地模型服务）始终直连。启动时终端会显示当前使用的代理，不显示代理密码。
 
-`--origin` 必须与浏览器发送的来源完全一致：主机名小写，不写默认端口（`:443` / `:80`），不带路径。
+自定义 `--origin` 必须与浏览器发送的来源完全一致：主机名小写，不写默认端口（`:443` / `:80`），不带路径。
 
 HTTPS 网页可连接 HTTP 回环地址。浏览器可能要求允许当前站点的本地网络／回环网络访问；站点 CSP 或组织策略仍可能阻止连接。参考 [Chrome Local Network Access 说明](https://developer.chrome.com/docs/modern-web-guidance/guides/security/local-network-access)。
 

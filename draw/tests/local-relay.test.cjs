@@ -5,12 +5,29 @@ const http = require('node:http');
 const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { once } = require('node:events');
-const { createRelay, parseArgs } = require('../tools/local-relay/server.cjs');
+const { createRelay, parseArgs, DEFAULT_ORIGINS } = require('../tools/local-relay/server.cjs');
 const ORIGIN = 'https://drawing.example';
 
-test('relay CLI requires exact origin and bounded port', () => {
-    assert.deepEqual(parseArgs(['--origin', 'null']), { origin: 'null', port: 18765 });
-    for (const args of [[], ['--origin', '*'], ['--origin', ORIGIN + '/'], ['--origin', ORIGIN, '--port', '0']]) assert.throws(() => parseArgs(args));
+test('relay CLI defaults to built-in origins, accepts repeated exact origins and bounded port', () => {
+    assert.deepEqual(DEFAULT_ORIGINS, ['https://draw.lhye.work', 'https://github.lhye.work', 'null']);
+    assert.deepEqual(parseArgs([]), { origins: DEFAULT_ORIGINS, port: 18765 });
+    assert.deepEqual(parseArgs(['--origin', 'null']), { origins: ['null'], port: 18765 });
+    assert.deepEqual(parseArgs(['--origin', ORIGIN, '--origin', 'null', '--origin', ORIGIN]), { origins: [ORIGIN, 'null'], port: 18765 });
+    for (const args of [['--origin', '*'], ['--origin', ORIGIN + '/'], ['--origin'], ['--origin', ORIGIN, '--port', '0']]) assert.throws(() => parseArgs(args));
+});
+
+test('relay without --origin serves each built-in origin and echoes it in CORS', async t => {
+    const { server, token } = createRelay({ port: 0 });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+    const health = origin => new Promise((resolve, reject) => {
+        http.get({ host: '127.0.0.1', port: server.address().port, path: '/health', headers: { Origin: origin, 'X-FlowSketch-Token': token } }, res => {
+            res.resume(); res.on('end', () => resolve({ status: res.statusCode, allow: res.headers['access-control-allow-origin'] }));
+        }).on('error', reject);
+    });
+    for (const origin of DEFAULT_ORIGINS) assert.deepEqual(await health(origin), { status: 200, allow: origin });
+    for (const origin of [ORIGIN, 'http://draw.lhye.work', 'https://evil.lhye.work']) assert.equal((await health(origin)).status, 403, origin);
 });
 
 const pythonAvailable = spawnSync('python3', ['--version']).status === 0;
@@ -50,7 +67,7 @@ for (const runtime of ['node', 'python', 'powershell']) {
         await once(upstream, 'listening');
         const target = `http://127.0.0.1:${upstream.address().port}/v1/chat/completions`;
         if (runtime === 'node') {
-            ({ server: relay, token } = createRelay({ origin: ORIGIN, port: 0 }));
+            ({ server: relay, token } = createRelay({ origins: [ORIGIN], port: 0 }));
             relay.listen(0, '127.0.0.1');
             await once(relay, 'listening');
             relayPort = relay.address().port;

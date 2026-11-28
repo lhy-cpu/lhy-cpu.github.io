@@ -1,18 +1,20 @@
 # Windows PowerShell 5.1 / .NET Framework; no installation or URL ACL is needed.
 # Intentionally never logs request bodies, upstream errors, or API credentials.
 $ErrorActionPreference = 'Stop'
-$relayOrigin = $null
+$relayOrigins = New-Object System.Collections.Generic.List[string]
 $relayPort = 18765
 try {
     for ($i = 0; $i -lt $args.Count; $i++) {
         switch ($args[$i]) {
-            '--origin' { $i++; if ($i -ge $args.Count) { throw 'Missing origin.' }; $relayOrigin = [string]$args[$i] }
+            '--origin' { $i++; if ($i -ge $args.Count) { throw 'Missing origin.' }; $relayOrigins.Add([string]$args[$i]) }
             '--port' { $i++; if ($i -ge $args.Count) { throw 'Missing port.' }; $relayPort = [int]$args[$i] }
             default { throw 'Unknown argument.' }
         }
     }
     if ($relayPort -lt 1 -or $relayPort -gt 65535) { throw 'Invalid port.' }
-    if ($relayOrigin -ne 'null') {
+    if ($relayOrigins.Count -eq 0) { $relayOrigins.AddRange([string[]]@('https://draw.lhye.work', 'https://github.lhye.work', 'null')) }
+    foreach ($relayOrigin in $relayOrigins) {
+        if ($relayOrigin -eq 'null') { continue }
         $originUri = $null
         if (-not [Uri]::TryCreate($relayOrigin, [UriKind]::Absolute, [ref]$originUri) -or
             $originUri.Scheme -notin @('http', 'https') -or $originUri.UserInfo -or
@@ -21,7 +23,7 @@ try {
         }
     }
 } catch {
-    Write-Error 'Usage: powershell -File server.ps1 --origin https://your-page.example [--port 18765]. Use origin null for file://.'
+    Write-Error 'Usage: powershell -File server.ps1 [--origin https://your-page.example ...] [--port 18765]. Use origin null for file://. Without --origin, https://draw.lhye.work, https://github.lhye.work and file:// are allowed.'
     exit 1
 }
 
@@ -50,7 +52,8 @@ public static class FlowSketchLocalRelay {
     const int MaxHeader = 32 * 1024;
     static readonly Encoding Utf8 = new UTF8Encoding(false, true);
     static readonly HttpClient Upstream = CreateClient();
-    static string Origin, Token;
+    static string[] Origins;
+    static string Token;
     static int Port;
 
     static HttpClient CreateClient() {
@@ -60,8 +63,8 @@ public static class FlowSketchLocalRelay {
         };
         return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
-    public static void Run(string origin, int port) {
-        Origin = origin; Port = port;
+    public static void Run(string[] origins, int port) {
+        Origins = origins; Port = port;
         var random = new byte[32];
         using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(random); }
         Token = BitConverter.ToString(random).Replace("-", "").ToLowerInvariant();
@@ -69,7 +72,7 @@ public static class FlowSketchLocalRelay {
         try { listener.Start(); }
         catch { throw new InvalidOperationException("Cannot start relay. Check that the port is available."); }
         Console.WriteLine("FlowSketch local relay: http://127.0.0.1:" + port);
-        Console.WriteLine("Allowed webpage origin: " + origin);
+        Console.WriteLine("Allowed webpage origins: " + string.Join(", ", origins));
         Console.WriteLine("Token (paste into AI settings): " + Token);
         Console.WriteLine("Keep this window open. Stop with Ctrl+C. No API keys or request bodies are logged.");
         try { AcceptLoop(listener).GetAwaiter().GetResult(); }
@@ -118,10 +121,10 @@ public static class FlowSketchLocalRelay {
         }
         return req;
     }
-    static string Cors(bool allowed) {
-        return allowed ? "Access-Control-Allow-Origin: " + Origin + "\r\nAccess-Control-Expose-Headers: X-FlowSketch-Relay-Error\r\nVary: Origin\r\n" : "";
+    static string Cors(string origin) {
+        return origin != null ? "Access-Control-Allow-Origin: " + origin + "\r\nAccess-Control-Expose-Headers: X-FlowSketch-Relay-Error\r\nVary: Origin\r\n" : "";
     }
-    static async Task WriteText(NetworkStream stream, int status, string json, bool cors, string extra) {
+    static async Task WriteText(NetworkStream stream, int status, string json, string cors, string extra) {
         byte[] body = Encoding.UTF8.GetBytes(json);
         string head = "HTTP/1.1 " + status + " " + Reason(status) + "\r\nConnection: close\r\nCache-Control: no-store\r\n" + Cors(cors) +
             "Content-Type: application/json\r\nContent-Length: " + body.Length + "\r\n" + (status >= 400 ? "X-FlowSketch-Relay-Error: 1\r\n" : "") + extra + "\r\n";
@@ -221,7 +224,8 @@ public static class FlowSketchLocalRelay {
         } catch (OperationCanceledException) { } catch { stop.Cancel(); }
     }
     static async Task Handle(TcpClient client) {
-        bool cors = false, started = false;
+        string cors = null;
+        bool started = false;
         Task watcher = null;
         int pendingErrorStatus = 0;
         string pendingErrorJson = null;
@@ -238,9 +242,9 @@ public static class FlowSketchLocalRelay {
                         using (headerDeadline.Token.Register(() => { try { client.Close(); } catch { } }))
                             req = await ReadHeaders(stream, headerDeadline.Token).ConfigureAwait(false);
                     }
-                    if ((req.Get("Host") != "127.0.0.1:" + Port && req.Get("Host") != "localhost:" + Port && req.Get("Host") != "[::1]:" + Port) || req.Get("Origin") != Origin)
+                    if ((req.Get("Host") != "127.0.0.1:" + Port && req.Get("Host") != "localhost:" + Port && req.Get("Host") != "[::1]:" + Port) || Array.IndexOf(Origins, req.Get("Origin")) < 0)
                         throw new RequestError(403, "Origin or Host rejected.");
-                    cors = true;
+                    cors = req.Get("Origin");
                     if (req.Path != "/health" && req.Path != "/proxy") throw new RequestError(404, "Not found.");
                     if (req.Method == "OPTIONS") {
                         string method = req.Get("Access-Control-Request-Method");
@@ -248,12 +252,12 @@ public static class FlowSketchLocalRelay {
                         if (method != "GET" && method != "POST") throw new RequestError(403, "Preflight rejected.");
                         foreach (string name in req.Get("Access-Control-Request-Headers").Split(','))
                             if (name.Trim().Length > 0 && !allowed.Contains(name.Trim().ToLowerInvariant())) throw new RequestError(403, "Preflight rejected.");
-                        await WriteText(stream, 204, "", true, "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, Accept, X-FlowSketch-Token, X-FlowSketch-Target\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n").ConfigureAwait(false);
+                        await WriteText(stream, 204, "", cors, "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, Accept, X-FlowSketch-Token, X-FlowSketch-Target\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n").ConfigureAwait(false);
                         return;
                     }
                     if (!TokenMatches(req.Get("X-FlowSketch-Token"))) throw new RequestError(401, "Relay token required.");
                     if (req.Method == "GET" && req.Path == "/health") {
-                        await WriteText(stream, 200, "{\"service\":\"flowsketch-local-relay\",\"version\":1}", true, "").ConfigureAwait(false); return;
+                        await WriteText(stream, 200, "{\"service\":\"flowsketch-local-relay\",\"version\":1}", cors, "").ConfigureAwait(false); return;
                     }
                     if (req.Method != "POST" || req.Path != "/proxy") throw new RequestError(405, "Method not allowed.");
                     if (req.Get("Content-Type").Split(';')[0].Trim().ToLowerInvariant() != "application/json") throw new RequestError(415, "JSON required.");
@@ -277,7 +281,7 @@ public static class FlowSketchLocalRelay {
                         if (req.Get("Accept").Length > 0) message.Headers.TryAddWithoutValidation("Accept", req.Get("Accept"));
                         using (var response = await Upstream.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, stop.Token).ConfigureAwait(false))
                         using (stop.Token.Register(() => response.Dispose())) {
-                            var head = new StringBuilder("HTTP/1.1 " + (int)response.StatusCode + " " + Reason((int)response.StatusCode) + "\r\nConnection: close\r\nCache-Control: no-store\r\n" + Cors(true));
+                            var head = new StringBuilder("HTTP/1.1 " + (int)response.StatusCode + " " + Reason((int)response.StatusCode) + "\r\nConnection: close\r\nCache-Control: no-store\r\n" + Cors(cors));
                             foreach (string name in new[] { "Content-Type", "Content-Encoding" }) {
                                 IEnumerable<string> values;
                                 if (response.Content.Headers.TryGetValues(name, out values)) head.Append(name + ": " + string.Join(", ", values).Replace("\r", "").Replace("\n", "") + "\r\n");
@@ -319,7 +323,7 @@ public static class FlowSketchLocalRelay {
 }
 '@
 try {
-    [FlowSketchLocalRelay]::Run($relayOrigin, $relayPort)
+    [FlowSketchLocalRelay]::Run([string[]]$relayOrigins.ToArray(), $relayPort)
 } catch {
     Write-Error 'Relay stopped or could not start. Check that the port is available.'
     exit 1
