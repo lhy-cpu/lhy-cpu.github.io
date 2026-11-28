@@ -167,7 +167,7 @@
     return result(choice.message.content == null ? null : choice.message.content, choice.message.tool_calls, choice.finish_reason);
   }
 
-  async function readSSE(response, onDelta, images) {
+  async function readSSE(response, onDelta, images, onProgress) {
     let buffer = '';
     let dataLines = [];
     let text = '';
@@ -175,6 +175,7 @@
     let done = false;
     let finishReason = null;
     let argumentBytes = 0;
+    let reasoning = '';
     const calls = new Map();
     function dispatch() {
       if (!dataLines.length) return;
@@ -195,6 +196,9 @@
       const delta = choice.delta;
       if (delta.role !== undefined && delta.role !== 'assistant') throw fail('API 流消息角色无效。');
       if (finishReason !== null) throw fail('API 流在消息结束后仍返回消息增量。');
+      // Reasoning deltas are display-only progress and are never added to the conversation.
+      const thought = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : typeof delta.reasoning === 'string' ? delta.reasoning : '';
+      if (thought) { reasoning += thought; if (onProgress) onProgress({ type: 'reasoning', text: reasoning }); }
       if (delta.content !== undefined && delta.content !== null) {
         if (typeof delta.content !== 'string') throw fail('API 流消息内容格式无效。');
         hasContent = true;
@@ -226,6 +230,7 @@
             }
             if (argumentBytes > ARGUMENT_LIMIT) throw fail('API 工具参数超过 1MB 限制。');
           }
+          if (onProgress) onProgress({ type: 'tool', index: part.index, name: call.function.name, arguments: call.function.arguments });
         }
       }
       if (choice.finish_reason !== undefined && choice.finish_reason !== null) {
@@ -264,7 +269,7 @@
     return result(hasContent ? text : null, indices.map((index) => calls.get(index)), finishReason);
   }
 
-  async function complete({ config, messages, tools, signal, onDelta }) {
+  async function complete({ config, messages, tools, signal, onDelta, onProgress }) {
     if (!config || typeof config.model !== 'string' || !config.model.trim() || !Array.isArray(messages)) throw fail('请配置模型并提供有效的消息列表。');
     const target = endpoint(config.apiUrl);
     const local = config.connection === 'local';
@@ -288,7 +293,7 @@
         if (images && (status === 500 || (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))) && imageRejected(await readErrorText(response))) throw imageError();
         throw httpError(status);
       }
-      return await (config.stream ? readSSE(response, onDelta, images) : readJSON(response, images));
+      return await (config.stream ? readSSE(response, onDelta, images, onProgress) : readJSON(response, images));
     } catch (error) {
       if ((signal && signal.aborted) || (error && error.name === 'AbortError')) throw fail('API 请求已取消或超时。');
       // Only our fixed, local messages are shown; network/server errors may contain credentials.

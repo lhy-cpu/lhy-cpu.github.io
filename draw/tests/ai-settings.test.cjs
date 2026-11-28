@@ -23,6 +23,7 @@ function element() {
     addEventListener(type, handler) { listeners.set(type, handler); },
     emit(type, event = {}) { return listeners.get(type)?.({ preventDefault() {}, ...event }); },
     append(...nodes) { this.children.push(...nodes); },
+    insertBefore(node, ref) { const index = this.children.indexOf(ref); this.children.splice(index < 0 ? this.children.length : index, 0, node); },
     replaceChildren(...nodes) { this.children = nodes; },
     get lastElementChild() { return this.children.at(-1); },
     querySelectorAll() { return []; },
@@ -35,7 +36,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
   const get = id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
   const stored = new Map(saved === undefined ? [] : [[storageKey, JSON.stringify(saved)]]);
   const timers = [], cleared = [], calls = [], intervals = [], clearedIntervals = [], instructions = [], applications = [], captures = [];
-  let now = 0; const documentListeners = new Map(), drawn = [];
+  let now = 0, endPreviews = 0; const documentListeners = new Map(), drawn = [], previews = [];
   const document = {
     getElementById: get, createElement: tag => tag === 'canvas' ? {
       getContext: () => ({ fillRect() {}, drawImage() {}, fillText(text) { drawn.push(text); } }), toDataURL: () => 'data:image/jpeg;base64,test',
@@ -55,8 +56,9 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
     setInterval: (callback, delay) => {const interval={callback,delay};intervals.push(interval);return interval;},
     clearInterval: interval => clearedIntervals.push(interval),
     window: {
-      FlowSketchEditor: { openRelayHelp: () => options.openRelayHelp?.(), readonly: false, assertEditable() {}, fingerprint: () => options.fingerprint?.()??'same', snapshot: () => options.snapshot?.()??({}), apply: (...args) => {applications.push(args);return apply(...args);}, capture: (...args) => {captures.push(args);return options.capture?options.capture(...args):Promise.reject(Error('capture unavailable'));}, fit() {} },
+      FlowSketchEditor: { preview: (...args) => { previews.push(args); return options.preview ? options.preview(...args) : true; }, endPreview: () => { endPreviews++; }, openRelayHelp: () => options.openRelayHelp?.(), readonly: false, assertEditable() {}, fingerprint: () => options.fingerprint?.()??'same', snapshot: () => options.snapshot?.()??({}), apply: (...args) => {applications.push(args);return apply(...args);}, capture: (...args) => {captures.push(args);return options.capture?options.capture(...args):Promise.reject(Error('capture unavailable'));}, fit() {} },
       FlowSketchAIEngine: { describe: snapshot => snapshot },
+      FlowSketchAIStream: require('../assets/js/ai-stream.js'),
       FlowSketchAIPrompts: { tool: () => ({}), tools: vision => [{function:{name:'edit_canvas'}},...(vision?[{function:{name:'view_canvas'}},{function:{name:'view_reference'}}]:[])], instructions: (...args) => {instructions.push(args);return 'instructions';} },
       FlowSketchAIPreview: {bind:(img,opts)=>{img.previewOptions=opts;},crop:(img,region)=>options.crop?options.crop(img,region):({url:'data:image/png;base64,crop',width:20,height:10,sourceWidth:img.naturalWidth,sourceHeight:img.naturalHeight,region:region||{x:0,y:0,w:img.naturalWidth,h:img.naturalHeight}})},
       FlowSketchAIClient: { endpoint() {}, relayEndpoint() {}, checkRelay: (...args) => options.checkRelay?.(...args)??Promise.resolve(true), complete: options => { calls.push(options); return complete(options); } },
@@ -64,7 +66,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
   };
   vm.runInNewContext(source, context, { filename: 'assets/js/ai.js' });
   return {
-    get, stored, drawn, timers, cleared, calls, intervals, clearedIntervals, instructions, applications, captures,
+    get, stored, drawn, previews, get endPreviews() { return endPreviews; }, timers, cleared, calls, intervals, clearedIntervals, instructions, applications, captures,
     tick: seconds => {now=seconds*1000;intervals.forEach(item=>item.callback());},
     documentEvent: type => documentListeners.get(type)?.(),
     send: (text = '画图') => { get('aiPrompt').value = text; return get('aiForm').emit('submit'); },
@@ -735,4 +737,71 @@ test('an image-only message that the model rejects asks for a text description i
   assert.equal(h.get('aiVision').checked, false);
   assert.match(h.notices(), /只有图片，请改用文字描述/);
   assert.equal(findButton(h, '不带图片继续生成'), undefined);
+});
+
+const lastMessage = h => h.get('aiMessages').children.at(-1);
+const childOf = (node, className) => node.children.find(child => child.className === className);
+const runPreviewTimers = h => h.timers.filter(timer => timer.delay === 200 && !timer.ran).forEach(timer => { timer.ran = true; timer.callback(); });
+
+test('streamed reasoning and edit operations update phase text, a collapsible thinking view and throttled previews', async () => {
+  const ops = [{ op: 'add', element: { id: 'a', type: 'basicShape', text: '输入' } }, { op: 'add', element: { id: 'b', type: 'basicShape', text: '输出' } }, { op: 'add', element: { id: 'c', type: 'connector', fromId: 'a', toId: 'b' } }];
+  const args = JSON.stringify({ operations: ops }), seen = {};
+  let h;
+  h = harness({ ...configured, mode: 'tools' }, async options => {
+    if (h.calls.length > 1) return { content: '完成' };
+    const node = lastMessage(h);
+    options.onProgress({ type: 'reasoning', text: '先规划布局' });
+    const thinking = childOf(node, 'ai-thinking');
+    seen.summary1 = thinking.children[0].textContent; seen.thinking = thinking.children[1].textContent; seen.status1 = h.get('aiActivityText').textContent;
+    assert.ok(node.children.indexOf(thinking) < node.children.indexOf(childOf(node, 'ai-message-body')));
+    options.onProgress({ type: 'tool', index: 0, name: 'edit_canvas', arguments: args.slice(0, args.indexOf('}},') + 2) });
+    seen.status2 = h.get('aiActivityText').textContent; seen.body2 = childOf(node, 'ai-message-body').textContent;
+    runPreviewTimers(h);
+    options.onProgress({ type: 'tool', index: 0, name: 'edit_canvas', arguments: args });
+    seen.status3 = h.get('aiActivityText').textContent; seen.summary3 = thinking.children[0].textContent;
+    runPreviewTimers(h);
+    return { content: '', tool_calls: [{ id: 't', type: 'function', function: { name: 'edit_canvas', arguments: args } }] };
+  });
+  await h.send('画流程');
+  assert.equal(seen.summary1, '正在思考 · 5 字');
+  assert.equal(seen.thinking, '先规划布局');
+  assert.match(seen.status1, /正在思考 · 已思考 5 字/);
+  assert.equal(seen.status2, '正在添加图形「输入」 · 第 1 项');
+  assert.equal(seen.body2, '正在绘制 · 已生成 1 项修改');
+  assert.equal(seen.status3, '正在连线「输入」→「输出」 · 第 3 项');
+  assert.equal(seen.summary3, '思考过程 · 5 字');
+  assert.deepEqual(h.previews.map(([operations, expected, resources]) => [operations.length, expected, typeof resources.assetMap]), [[1, 'same', 'object'], [3, 'same', 'object']]);
+  assert.equal(h.applications.length, 1);
+  assert.equal(h.applications[0][0].length, 3);
+  assert.ok(h.endPreviews >= 1);
+  assert.equal(JSON.stringify(h.calls[1].messages).includes('先规划布局'), false);
+});
+
+test('JSON code blocks stream progress too; failed partial previews are skipped and errors restore the canvas', async () => {
+  const seen = {};
+  let h;
+  h = harness(configured, async options => {
+    options.onDelta('x', '<think>想一想</think>好的，开始绘制。\n```flowsketch\n{"operations":[{"op":"add","element":{"id":"a","type":"text","text":"标题"}},');
+    const node = lastMessage(h);
+    seen.status = h.get('aiActivityText').textContent; seen.body = childOf(node, 'ai-message-body').textContent;
+    seen.thinking = childOf(node, 'ai-thinking').children[1].textContent;
+    runPreviewTimers(h);
+    throw Error('API 流意外中断或缺少结束标记，未执行任何操作。');
+  }, undefined, undefined, { preview: () => { throw Error('partial batch'); } });
+  await h.send();
+  assert.equal(seen.status, '正在添加文字「标题」 · 第 1 项');
+  assert.equal(seen.body, '好的，开始绘制。\n\n正在绘制 · 已生成 1 项修改\n');
+  assert.equal(seen.thinking, '想一想');
+  assert.equal(h.previews.length, 1);
+  assert.equal(h.endPreviews, 1);
+  assert.equal(h.applications.length, 0);
+  assert.match(h.notices(), /意外中断/);
+});
+
+test('plain chat replies show a writing phase and never request previews', async () => {
+  let status;
+  const h = harness(configured, async options => { options.onDelta('你', '你好，有什么想画的？'); status = h.get('aiActivityText').textContent; return { content: '你好，有什么想画的？' }; });
+  await h.send('你好');
+  assert.equal(status, '正在撰写回复，准备绘制…');
+  assert.equal(h.previews.length, 0);
 });

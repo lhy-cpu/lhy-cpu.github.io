@@ -343,7 +343,7 @@
   function instructions(snapshot,mode,referenceImages,vision) {
     return window.FlowSketchAIPrompts.instructions(snapshot,mode,referenceImages,{vision});
   }
-  function displayText(text) {return String(text||'').replace(/```flowsketch\s*[\s\S]*?(?:```|$)/g,'\n正在准备画布修改…\n');}
+  function displayText(text,placeholder='正在准备画布修改…') {return window.FlowSketchAIStream.splitThinking(text).text.replace(/```flowsketch\s*[\s\S]*?(?:```|$)/g,`\n${placeholder}\n`);}
   function parseEdits(text) {
     const matches=[...String(text||'').matchAll(/```flowsketch\s*([\s\S]*?)```/g)];
     if(!matches.length){if(String(text||'').includes('```flowsketch'))throw Error('AI 的编辑指令不完整，未修改画布。');return null;}
@@ -380,7 +380,63 @@
     const startedAt=Date.now();let phase='正在连接模型…';
     function updateStatus(value) {if(value)phase=value;$('aiActivityText').textContent=phase;$('aiStatus').textContent=`${phase} · 已用 ${Math.floor((Date.now()-startedAt)/1000)} 秒 / 上限 ${requestConfig.timeoutSeconds} 秒`;}
     updateStatus();const ticker=setInterval(()=>updateStatus(),1000);
-    let pending=null;
+    let pending=null,live=null;
+    // Per-reply streaming progress: phase text, a collapsible reasoning view and throttled canvas previews.
+    function liveRound(target) {
+      const Stream=window.FlowSketchAIStream,parsers=new Map(),operations=[];
+      const labels=new Map((window.FlowSketchEditor.snapshot().elements||[]).map(e=>[e.id,Stream.label(e)]));
+      let jsonParser=null,thinking=null,thinkingText='',content='',hasText=false,previewTimer=null,previewed=0;
+      const prefix=()=>applied?`已应用 ${applied} 批修改 · `:'';
+      const drafting=()=>operations.length?`正在绘制 · 已生成 ${operations.length} 项修改`:'正在准备画布修改…';
+      function renderBody(){if(content||operations.length)target.body.textContent=displayText(content,drafting())||drafting();}
+      function showThinking(text){
+        if(!text)return;thinkingText=text;
+        if(!thinking){
+          thinking={node:document.createElement('details'),summary:document.createElement('summary'),body:document.createElement('div')};
+          thinking.node.className='ai-thinking';thinking.body.className='ai-thinking-body';
+          thinking.node.append(thinking.summary,thinking.body);target.node.insertBefore(thinking.node,target.body);
+        }
+        thinking.summary.textContent=`${hasText||operations.length?'思考过程':'正在思考'} · ${text.length} 字`;thinking.body.textContent=text;
+      }
+      function schedulePreview(){
+        if(previewTimer||!window.FlowSketchEditor.preview)return;
+        previewTimer=setTimeout(()=>{
+          previewTimer=null;if(signal.aborted||previewed===operations.length)return;
+          try{if(window.FlowSketchEditor.preview(operations.slice(),expected,{assetMap}))previewed=operations.length;}
+          catch{/* A partial batch may reference items that have not arrived yet; keep the last valid frame. */}
+        },200);
+      }
+      function addOperations(found){
+        if(!found.length)return;
+        for(const operation of found){operations.push(operation);if(operation?.op==='add'&&typeof operation.element?.id==='string')labels.set(operation.element.id,Stream.label(operation.element));}
+        updateStatus(`${prefix()}${Stream.describe(found.at(-1),labels)} · 第 ${operations.length} 项`);
+        if(thinking)showThinking(thinkingText);
+        renderBody();schedulePreview();
+      }
+      function reasoning(text){showThinking(text);if(!hasText&&!operations.length)updateStatus(`${prefix()}正在思考 · 已思考 ${text.length} 字`);scrollChat();}
+      return {
+        reasoning,
+        content(full){
+          content=full;const split=Stream.splitThinking(full);
+          hasText=!!split.text.replace(/```flowsketch[\s\S]*?(?:```|$)/g,'').trim();
+          if(split.thinking)reasoning(split.thinking);else if(thinking)showThinking(thinkingText);
+          renderBody();
+          const at=requestConfig.mode==='json'?split.text.indexOf('```flowsketch'):-1;
+          if(at>=0){jsonParser||=Stream.operationStream();addOperations(jsonParser.feed(split.text.slice(at+13)));if(!operations.length)updateStatus(`${prefix()}正在规划修改…`);}
+          else if(hasText&&!operations.length)updateStatus(`${prefix()}正在撰写回复，准备绘制…`);
+          scrollChat();
+        },
+        tool({index,name,arguments:args}){
+          if(name==='edit_canvas'){
+            let parser=parsers.get(index);if(!parser)parsers.set(index,parser=Stream.operationStream());
+            addOperations(parser.feed(args));if(!operations.length){updateStatus(`${prefix()}正在规划修改…`);renderBody();}
+          }else if(name==='view_canvas')updateStatus(`${prefix()}正在请求查看画布…`);
+          else if(name==='view_reference')updateStatus(`${prefix()}正在请求查看参考图片…`);
+        },
+        finish(reply){this.stop();hasText=true;showThinking(thinkingText||Stream.splitThinking(reply.content).thinking);},
+        stop(){if(previewTimer)clearTimeout(previewTimer);previewTimer=null;}
+      };
+    }
     function assertCurrent() {
       if(signal.aborted)throw new DOMException('Aborted','AbortError');
       window.FlowSketchEditor.assertEditable();
@@ -452,12 +508,13 @@
       for(let round=0;round<8;round++) {
         if(signal.aborted)throw new DOMException('Aborted','AbortError');
         updateStatus(applied?`已应用 ${applied} 批修改 · 正在优化，检查并准备后续调整…`:'正在思考，准备绘制…');
-        pending=message('assistant','正在思考…');pending.node.classList.add('pending');
+        pending=message('assistant','正在思考…');pending.node.classList.add('pending');live=liveRound(pending);
         const snapshot=window.FlowSketchAIEngine.describe(window.FlowSketchEditor.snapshot());
         const reply=await window.FlowSketchAIClient.complete({config:requestConfig,
           messages:[{role:'system',content:instructions(snapshot,requestConfig.mode,referenceImages,requestConfig.vision)},...requestTurns.flat()],
-          tools:window.FlowSketchAIPrompts.tools(requestConfig.vision),signal,onDelta:(_delta,full)=>{pending.body.textContent=displayText(full)||'正在准备画布修改…';updateStatus(applied?`已应用 ${applied} 批修改 · 正在优化，检查并准备后续调整…`:full?'正在生成，准备绘制…':'正在思考…');scrollChat();}});
+          tools:window.FlowSketchAIPrompts.tools(requestConfig.vision),signal,onDelta:(_delta,full)=>live.content(full),onProgress:event=>event.type==='reasoning'?live.reasoning(event.text):event.type==='tool'&&live.tool(event)});
         if(signal.aborted)throw new DOMException('Aborted','AbortError');
+        live.finish(reply);
         pending.node.classList.remove('pending');pending.body.textContent=displayText(reply.content)||'正在准备画布修改…';
         if(reply.tool_calls?.length) {
           if(requestConfig.mode!=='tools')throw Error('接口返回了未启用的工具调用，请切换修改方式。');
@@ -551,7 +608,7 @@
       const retry=document.createElement('button');retry.className='btn';retry.textContent='重新发送这条消息';
       retry.onclick=()=>{if(busy)return;const sameFile=window.FlowSketchEditor.snapshot().fileId===requestFileId;$('aiPrompt').value=text;targetIds=sameFile?currentTargets(targets):[];renderTargets();attachments=config.vision&&sameFile?images.slice():[];for(const item of attachments)assetRegistry.set(item.assetId,{src:item.url,name:item.name,width:item.width,height:item.height});pruneAssets();renderAttachments();if(!sameFile&&(targets.length||images.length))notice('原消息的指定元素和图片来自其他文件，已省略；请重新选择。');$('aiPrompt').focus();};
       $('aiMessages').lastElementChild.append(retry);scrollChat();
-    }finally{clearTimeout(timer);clearInterval(ticker);controller=null;resetDrag();setBusy(false);}
+    }finally{live?.stop();window.FlowSketchEditor.endPreview?.();clearTimeout(timer);clearInterval(ticker);controller=null;resetDrag();setBusy(false);}
   }
   $('aiForm').addEventListener('submit',send);
   function isBlankCanvas(){const elements=window.FlowSketchEditor.snapshot().elements;return Array.isArray(elements)&&elements.length===0;}

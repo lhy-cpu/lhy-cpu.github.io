@@ -299,3 +299,17 @@ test('explicit image rejections are classified only for requests that carry imag
   await assert.rejects(streamRequest(client(async () => stream(streamed, [65536])), { messages: imageMessages }), error => error.code === 'IMAGE_UNSUPPORTED');
   await assert.rejects(streamRequest(client(async () => stream(streamed, [65536])), { messages: [] }), error => error.code === undefined && /流返回错误/.test(error.message));
 });
+
+test('streaming progress reports reasoning and partial tool arguments without adding them to the reply', async () => {
+  const payload = event({ role: 'assistant', reasoning_content: '先' }) + event({ reasoning_content: '规划' }) + event({ reasoning: '布局' }) +
+    event({ tool_calls: [{ index: 0, id: 'call', type: 'function', function: { name: 'edit_canvas', arguments: '{"operations":[' } }] }) +
+    event({ tool_calls: [{ index: 0, function: { arguments: '{"op":"clear"}]}' } }] }, 'tool_calls') + 'data: [DONE]\n\n';
+  const progress = [];
+  const reply = await streamRequest(client(async () => stream(payload, [17])), { config: { ...config, stream: true, mode: 'tools' }, onProgress: item => progress.push(plain(item)) });
+  assert.deepEqual(progress.filter(item => item.type === 'reasoning').map(item => item.text), ['先', '先规划', '先规划布局']);
+  assert.deepEqual(progress.filter(item => item.type === 'tool').map(item => item.arguments), ['{"operations":[', '{"operations":[{"op":"clear"}]}']);
+  assert.ok(progress.every(item => item.type !== 'tool' || (item.index === 0 && item.name === 'edit_canvas')));
+  assert.equal(reply.content, null);
+  assert.equal(JSON.stringify(reply).includes('规划'), false);
+  assert.equal(reply.tool_calls[0].function.arguments, '{"operations":[{"op":"clear"}]}');
+});

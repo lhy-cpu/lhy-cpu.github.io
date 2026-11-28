@@ -6,7 +6,7 @@
   <title>FlowSketch · 流程说明图绘制引擎</title>
   <link rel="icon" type="image/svg+xml" href="assets/flowsketch-icon.svg">
   <link rel="stylesheet" href="assets/vendor/katex.min.css">
-  <link rel="stylesheet" href="assets/css/ai.css?v=20261029.3">
+  <link rel="stylesheet" href="assets/css/ai.css?v=20261128.1">
   <link rel="stylesheet" href="assets/css/ai-relay-help.css?v=20261029.3">
   <link rel="stylesheet" href="assets/css/ai-preview.css?v=20261029.3">
   <link rel="stylesheet" href="assets/css/image-editor.css?v=20261012.1">
@@ -107,7 +107,7 @@
         <div id="aiAttachments" class="ai-attachments"></div>
         <textarea id="aiPrompt" placeholder="描述你的想法，AI 会直接修改画布…" rows="3" aria-label="发送给 AI 的消息" maxlength="20000"></textarea>
         <div class="ai-composer-actions"><button type="button" class="btn icon" id="aiAttach" title="请先启用模型支持图片输入" aria-label="添加图片" disabled>＋</button><span id="aiInputHint">Enter 发送 · Shift+Enter 换行</span><button type="button" class="btn" id="aiStop" hidden>停止</button><button class="btn primary" id="aiSend" type="submit" aria-label="发送消息">发送 ↑</button></div>
-        <p class="ai-footnote">AI 的每批修改均可用顶部「撤销」恢复 · <span title="前端资源版本">20261126.1</span></p>
+        <p class="ai-footnote">AI 的每批修改均可用顶部「撤销」恢复 · <span title="前端资源版本">20261128.1</span></p>
       </form>
       <input id="aiImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
     </aside>
@@ -128,7 +128,7 @@
 <script src="assets/js/image-editor.js?v=20261012.1"></script>
 <script src="assets/js/image-controls.js?v=20261012.1"></script>
 <script src="assets/js/ai-engine.js?v=20261013.2"></script>
-<script src="assets/js/ai-client.js?v=20261029.3"></script>
+<script src="assets/js/ai-client.js?v=20261128.1"></script>
 <script>
 (()=>{'use strict';
   const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)], uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -577,6 +577,8 @@
     const right=Math.min(project.canvas.width,Math.ceil(Math.max(...bs.map(b=>b.x+b.w))+padding)),bottom=Math.min(project.canvas.height,Math.ceil(Math.max(...bs.map(b=>b.y+b.h))+padding));
     if(right>x&&bottom>y)return{x,y,w:right-x,h:bottom-y};
   }
+  let aiPreviewIds=null;
+  function endAIPreview(){if(!aiPreviewIds)return;aiPreviewIds=null;canvas.classList.remove('ai-previewing');syncUI();render()}
   window.FlowSketchEditor={
     readonly:previewMode||Boolean(projectUrl),assertEditable:assertAIEditable,
     openRelayHelp:()=>window.FlowSketchAIRelayHelp.open({show:modal,close:closeModal,origin:window.location.origin}),
@@ -588,12 +590,27 @@
         if(!expected||aiFingerprint()!==expected)throw Error('截图期间当前文件或画布已变化，请重新发送。');
         if(interaction||canvas.querySelector('[contenteditable="true"]')||$('#modal').classList.contains('show'))throw Error('请先结束画布编辑或关闭窗口，再查看截图。');
       };
-      assertCurrent();
+      endAIPreview();assertCurrent();
       const crop=region===undefined?aiTargetRegion(elementIds):region;
       return window.FlowSketchCanvasCapture.capture({canvas,width:project.canvas.width,height:project.canvas.height,background:project.canvas.bg,signal,region:crop,assertCurrent,prepare:prepareCanvasCaptureImages});
     },
-    apply(operations,expected,resources={}){
+    // Display-only frame of a partially streamed batch: the project, history and fingerprint stay unchanged.
+    preview(operations,expected,resources={}){
       assertAIEditable();
+      if(!expected||aiFingerprint()!==expected){endAIPreview();return false}
+      if(interaction||canvas.querySelector('[contenteditable="true"]')||$('#modal').classList.contains('show'))return false;
+      const candidate=window.FlowSketchAIEngine.apply(project,operations,resources.assetMap||{}),base=project,baseSelection=selection,seen=aiPreviewIds||new Set(project.elements.map(e=>e.id));
+      try{
+        project=candidate;selection=[];normalize();normalizeExtra();syncUI();render();
+        for(const e of project.elements)if(!seen.has(e.id))canvas.querySelectorAll(`[data-id="${CSS.escape(e.id)}"]`).forEach(node=>node.classList.add('ai-new'));
+        aiPreviewIds=new Set(project.elements.map(e=>e.id));canvas.classList.add('ai-previewing');
+      }catch(error){project=base;selection=baseSelection;aiPreviewIds=null;canvas.classList.remove('ai-previewing');syncUI();render();throw error}
+      finally{project=base;selection=baseSelection}
+      return true;
+    },
+    endPreview:endAIPreview,
+    apply(operations,expected,resources={}){
+      endAIPreview();assertAIEditable();
       if(interaction||canvas.querySelector('[contenteditable="true"]')||$('#modal').classList.contains('show'))throw new Error('请先结束画布编辑或关闭文件、图片、公式与 JSON 窗口，再重试。');
       if(!expected||aiFingerprint()!==expected)throw new Error('等待 AI 时当前文件或画布已变化，本次修改未应用。请根据当前画布重新发送。');
       const candidate=window.FlowSketchAIEngine.apply(project,operations,resources.assetMap||{}),previous=project,previousSelection=selection.slice();
@@ -608,7 +625,8 @@
 <script src="assets/js/canvas-capture.js?v=20261029.3"></script>
 <script src="assets/js/ai-prompts.js?v=20261029.3"></script>
 <script src="assets/js/ai-preview.js?v=20261029.3"></script>
-<script src="assets/js/ai-relay-help.js?v=20261029.3"></script>
-<script src="assets/js/ai.js?v=20261126.1"></script>
+<script src="assets/js/ai-relay-help.js?v=20261128.1"></script>
+<script src="assets/js/ai-stream.js?v=20261128.1"></script>
+<script src="assets/js/ai.js?v=20261128.1"></script>
 </body>
 </html>
