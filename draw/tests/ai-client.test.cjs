@@ -278,3 +278,24 @@ test('local failures never fall back to direct API or leak credentials', async (
   }
   assert.equal(count, 1);
 });
+
+test('explicit image rejections are classified only for requests that carry images', async () => {
+  const imageMessages = [{ role: 'user', content: [{ type: 'text', text: 'x' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] }];
+  const status = (code, body) => async () => new Response(JSON.stringify(body), { status: code, headers: { 'Content-Type': 'application/json' } });
+  const bodies = [
+    { error: { message: 'Invalid content type. image_url is only supported by certain models.' } },
+    { error: { message: 'Failed to deserialize the JSON body into the target type: messages[0]: unknown variant `image_url`, expected `text`' } },
+    { error: { message: 'The model is not a multimodal model' } },
+    { error: { message: '该模型不支持图片输入' } },
+  ];
+  for (const body of bodies) {
+    await assert.rejects(request(client(status(400, body)), { messages: imageMessages }), error => error.code === 'IMAGE_UNSUPPORTED' && /不支持图片/.test(error.message) && !error.message.includes('image_url'));
+    await assert.rejects(request(client(status(400, body)), { messages: [] }), error => error.code === undefined && /HTTP 400/.test(error.message));
+  }
+  for (const code of [401, 429]) await assert.rejects(request(client(status(code, bodies[0])), { messages: imageMessages }), error => error.code === undefined && new RegExp('HTTP ' + code).test(error.message));
+  await assert.rejects(request(client(status(400, { error: { message: 'Invalid image format' } })), { messages: imageMessages }), error => error.code === undefined);
+  await assert.rejects(request(client(async () => json(bodies[0])), { messages: imageMessages }), error => error.code === 'IMAGE_UNSUPPORTED');
+  const streamed = 'data: ' + JSON.stringify(bodies[2]) + '\n\n';
+  await assert.rejects(streamRequest(client(async () => stream(streamed, [65536])), { messages: imageMessages }), error => error.code === 'IMAGE_UNSUPPORTED');
+  await assert.rejects(streamRequest(client(async () => stream(streamed, [65536])), { messages: [] }), error => error.code === undefined && /流返回错误/.test(error.message));
+});

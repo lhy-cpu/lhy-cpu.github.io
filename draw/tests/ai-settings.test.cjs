@@ -35,10 +35,10 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
   const get = id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
   const stored = new Map(saved === undefined ? [] : [[storageKey, JSON.stringify(saved)]]);
   const timers = [], cleared = [], calls = [], intervals = [], clearedIntervals = [], instructions = [], applications = [], captures = [];
-  let now = 0; const documentListeners = new Map();
+  let now = 0; const documentListeners = new Map(), drawn = [];
   const document = {
     getElementById: get, createElement: tag => tag === 'canvas' ? {
-      getContext: () => ({ fillRect() {}, drawImage() {} }), toDataURL: () => 'data:image/jpeg;base64,test',
+      getContext: () => ({ fillRect() {}, drawImage() {}, fillText(text) { drawn.push(text); } }), toDataURL: () => 'data:image/jpeg;base64,test',
     } : element(),
     querySelector: () => element(), querySelectorAll: () => [], addEventListener(type, handler) { documentListeners.set(type, handler); },
   };
@@ -64,7 +64,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
   };
   vm.runInNewContext(source, context, { filename: 'assets/js/ai.js' });
   return {
-    get, stored, timers, cleared, calls, intervals, clearedIntervals, instructions, applications, captures,
+    get, stored, drawn, timers, cleared, calls, intervals, clearedIntervals, instructions, applications, captures,
     tick: seconds => {now=seconds*1000;intervals.forEach(item=>item.callback());},
     documentEvent: type => documentListeners.get(type)?.(),
     send: (text = '画图') => { get('aiPrompt').value = text; return get('aiForm').emit('submit'); },
@@ -78,20 +78,33 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
   };
 }
 
-const configured = { apiUrl: 'https://example.test/v1', model: 'test' };
+const configured = { apiUrl: 'https://example.test/v1', model: 'test', vision: false, mode: 'json' };
 
-test('new and legacy settings default to 180 seconds without losing existing fields', () => {
-  assert.equal(harness().get('aiTimeout').value, '180');
-  const h = harness({ ...configured, stream: false, mode: 'tools' });
+test('new settings default to 600 seconds, image input, streaming and tool calls', () => {
+  const h = harness();
+  assert.equal(h.get('aiTimeout').value, '600');
+  assert.equal(h.get('aiVision').checked, true);
+  assert.equal(h.get('aiStream').checked, true);
+  assert.equal(h.get('aiMode').value, 'tools');
+});
+
+test('legacy settings keep explicit choices and fill missing fields with the new defaults', () => {
+  const h = harness({ ...configured, stream: false, mode: 'json', vision: false, timeoutSeconds: 180 });
   assert.equal(h.get('aiTimeout').value, '180');
   assert.equal(h.get('aiModel').value, 'test');
   assert.equal(h.get('aiStream').checked, false);
-  assert.equal(h.get('aiMode').value, 'tools');
+  assert.equal(h.get('aiVision').checked, false);
+  assert.equal(h.get('aiMode').value, 'json');
+  const sparse = harness({ apiUrl: configured.apiUrl, model: configured.model, mode: 'unknown' });
+  assert.equal(sparse.get('aiTimeout').value, '600');
+  assert.equal(sparse.get('aiVision').checked, true);
+  assert.equal(sparse.get('aiStream').checked, true);
+  assert.equal(sparse.get('aiMode').value, 'tools');
 });
 
 test('invalid historical values fall back to the default; valid boundaries survive reload', () => {
   for (const timeoutSeconds of [null, '', '60', 0, 9, 3601, 10.5]) {
-    assert.equal(harness({ ...configured, timeoutSeconds }).get('aiTimeout').value, '180');
+    assert.equal(harness({ ...configured, timeoutSeconds }).get('aiTimeout').value, '600');
   }
   for (const timeoutSeconds of [10, 60, 3600]) {
     assert.equal(harness({ ...configured, timeoutSeconds }).get('aiTimeout').value, String(timeoutSeconds));
@@ -105,7 +118,9 @@ test('valid input persists, save closes settings, and clear restores the default
   h.get('aiSave').onclick();
   assert.equal(h.get('aiSettings').open, false);
   h.get('aiForget').onclick();
-  assert.equal(h.get('aiTimeout').value, '180');
+  assert.equal(h.get('aiTimeout').value, '600');
+  assert.equal(h.get('aiVision').checked, true);
+  assert.equal(h.get('aiMode').value, 'tools');
   assert.equal(h.stored.has(storageKey), false);
 });
 
@@ -639,4 +654,85 @@ test('a failed request that applied nothing is not repeated in the next request 
   assert.equal(history.length, 3);
   assert.equal(history[1].content, '好的');
   assert.equal(history[2].role, 'user');
+});
+
+const imageUnsupported = () => { const error = Error('所选模型不支持图片输入：接口明确拒绝了图片内容。'); error.code = 'IMAGE_UNSUPPORTED'; return error; };
+const findButton = (h, label) => h.get('aiMessages').children.flatMap(node => node.children).find(child => child.textContent === label);
+
+test('image test sends a random code only inside the picture, then enables vision when the model reads it', async () => {
+  let h;
+  h = harness({ ...configured, vision: false, mode: 'tools' }, async () => ({ content: '识别结果：' + h.drawn.join('') }));
+  assert.equal(h.get('aiRelayTest').hidden, true);
+  await h.get('aiVisionTest').onclick();
+  const code = h.drawn.join('');
+  assert.match(code, /^[ACDEFHJKMNPRTUVWXY34679]{5}$/);
+  assert.equal(h.calls.length, 1);
+  const [request] = h.calls;
+  assert.equal(request.config.mode, 'json');
+  assert.equal(request.messages[0].content[1].type, 'image_url');
+  assert.equal(request.messages[0].content[0].text.includes(code), false);
+  assert.equal(h.get('aiVision').checked, true);
+  assert.equal(JSON.parse(h.stored.get(storageKey)).vision, true);
+  assert.match(h.get('aiVisionStatus').textContent, new RegExp('正确读出「' + code + '」.*已自动勾选'));
+  assert.equal(h.get('aiVisionTestResult').hidden, false);
+  assert.equal(h.get('aiVisionTest').disabled, false);
+});
+
+test('image test unchecks vision on a wrong answer or explicit rejection, and leaves it on other errors', async () => {
+  const wrong = harness({ ...configured, vision: true }, async () => ({ content: 'NO_IMAGE' }));
+  await wrong.get('aiVisionTest').onclick();
+  assert.equal(wrong.get('aiVision').checked, false);
+  assert.equal(JSON.parse(wrong.stored.get(storageKey)).vision, false);
+  assert.match(wrong.get('aiVisionStatus').textContent, /没有读出.*已自动取消勾选/);
+  const rejected = harness({ ...configured, vision: true }, async () => { throw imageUnsupported(); });
+  await rejected.get('aiVisionTest').onclick();
+  assert.equal(rejected.get('aiVision').checked, false);
+  assert.match(rejected.get('aiVisionStatus').textContent, /明确拒绝/);
+  const offline = harness({ ...configured, vision: true }, async () => { throw Error('API 请求失败（HTTP 401）。'); });
+  await offline.get('aiVisionTest').onclick();
+  assert.equal(offline.get('aiVision').checked, true);
+  assert.match(offline.get('aiVisionStatus').textContent, /测试未完成.*HTTP 401.*保持不变/);
+});
+
+test('image test tolerates small misreads and validates settings before calling the model', async () => {
+  let h;
+  h = harness({ ...configured, vision: false }, async () => { const code = h.drawn.join(''); return { content: code.slice(0, 3) + (code[3] === 'A' ? 'C' : 'A') + code[4] }; });
+  await h.get('aiVisionTest').onclick();
+  assert.equal(h.get('aiVision').checked, true);
+  assert.match(h.get('aiVisionStatus').textContent, /识别有偏差/);
+  const missing = harness({ apiUrl: 'https://example.test/v1' });
+  await missing.get('aiVisionTest').onclick();
+  assert.equal(missing.calls.length, 0);
+  assert.match(missing.get('aiVisionStatus').textContent, /模型名/);
+});
+
+test('an explicit image rejection while chatting turns vision off, strips history images and offers to continue without them', async () => {
+  let round = 0;
+  const h = harness({ ...configured, vision: true }, async () => { if (++round === 2) throw imageUnsupported(); return { content: '完成' }; });
+  await h.addImage();
+  await h.send('参考这张图');
+  h.get('aiPrompt').value = '';
+  await h.send('改成蓝色');
+  assert.equal(h.get('aiVision').checked, false);
+  assert.equal(JSON.parse(h.stored.get(storageKey)).vision, false);
+  assert.match(h.notices(), /所选模型「test」不支持图片输入，已自动取消「模型支持图片输入」勾选/);
+  assert.equal(findButton(h, '重新发送这条消息'), undefined);
+  h.get('aiPrompt').value = 'draft';
+  await findButton(h, '不带图片继续生成').onclick();
+  assert.equal(h.calls.length, 3);
+  const resumed = h.calls[2];
+  assert.equal(resumed.config.vision, false);
+  assert.equal(resumed.messages.some(item => Array.isArray(item.content)), false);
+  assert.equal(resumed.messages.at(-1).content, '改成蓝色');
+  assert.match(JSON.stringify(resumed.messages), /原有图片已省略/);
+  assert.equal(h.get('aiPrompt').value, 'draft');
+});
+
+test('an image-only message that the model rejects asks for a text description instead of continuing', async () => {
+  const h = harness({ ...configured, vision: true }, async () => { throw imageUnsupported(); });
+  await h.addImage();
+  await h.send('');
+  assert.equal(h.get('aiVision').checked, false);
+  assert.match(h.notices(), /只有图片，请改用文字描述/);
+  assert.equal(findButton(h, '不带图片继续生成'), undefined);
 });

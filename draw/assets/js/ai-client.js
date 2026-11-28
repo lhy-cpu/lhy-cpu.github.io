@@ -7,6 +7,17 @@
   const encoder = new TextEncoder();
   const localErrors = new WeakSet();
   const fail = (message) => { const error = new Error(message); localErrors.add(error); return error; };
+  const IMAGE_TOPIC = 'image|vision|multi-?modal|图片|图像|视觉|多模态';
+  const IMAGE_REFUSAL = "not support|unsupported|doesn'?t support|does not accept|only supported|unknown variant|at most 0|not enabled|不支持|无法处理|未开通";
+  const IMAGE_REJECTED = new RegExp(`(?:${IMAGE_TOPIC})[\\s\\S]{0,120}(?:${IMAGE_REFUSAL})|(?:${IMAGE_REFUSAL})[\\s\\S]{0,120}(?:${IMAGE_TOPIC})|not a multi-?modal model|invalid type: sequence, expected a string|content[\\s\\S]{0,40}(?:must be|expected|should be) (?:a |of type )?string`, 'i');
+  // Classification only: upstream error text is never shown because it may echo request data.
+  const imageRejected = (text) => IMAGE_REJECTED.test(String(text || '').slice(0, 65536));
+  const hasImages = (messages) => messages.some((item) => Array.isArray(item && item.content) && item.content.some((part) => part && part.type === 'image_url'));
+  function imageError() {
+    const error = fail('所选模型不支持图片输入：接口明确拒绝了图片内容。');
+    error.code = 'IMAGE_UNSUPPORTED';
+    return error;
+  }
 
   function endpoint(value) {
     let url;
@@ -129,18 +140,34 @@
     }
   }
 
-  async function readJSON(response) {
+  async function readErrorText(response) {
+    try {
+      if (!response.body || typeof response.body.getReader !== 'function') return '';
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      let text = '';
+      try {
+        while (text.length < 65536) {
+          const part = await reader.read();
+          if (part.done) break;
+          text += decoder.decode(part.value, { stream: true });
+        }
+      } finally { Promise.resolve(reader.cancel()).catch(() => {}); reader.releaseLock(); }
+      return text;
+    } catch (_) { return ''; }
+  }
+
+  async function readJSON(response, images) {
     let body = '';
     await readBody(response, (text) => { body += text; });
     let data;
     try { data = JSON.parse(body); } catch (_) { throw fail('API 返回的 JSON 无效，未执行任何操作。'); }
-    if (data && data.error) throw fail('API 返回错误，未执行任何操作。请检查服务配置。');
+    if (data && data.error) throw images && imageRejected(JSON.stringify(data.error)) ? imageError() : fail('API 返回错误，未执行任何操作。请检查服务配置。');
     const choice = data && Array.isArray(data.choices) && data.choices[0];
     if (!choice || !choice.message || choice.message.role !== 'assistant') throw fail('API 响应缺少有效的助手消息。');
     return result(choice.message.content == null ? null : choice.message.content, choice.message.tool_calls, choice.finish_reason);
   }
 
-  async function readSSE(response, onDelta) {
+  async function readSSE(response, onDelta, images) {
     let buffer = '';
     let dataLines = [];
     let text = '';
@@ -157,7 +184,7 @@
       if (data === '[DONE]') { done = true; return; }
       let chunk;
       try { chunk = JSON.parse(data); } catch (_) { throw fail('API 流包含无效的 JSON，未执行任何操作。'); }
-      if (chunk && chunk.error) throw fail('API 流返回错误，未执行任何操作。请检查服务配置。');
+      if (chunk && chunk.error) throw images && imageRejected(JSON.stringify(chunk.error)) ? imageError() : fail('API 流返回错误，未执行任何操作。请检查服务配置。');
       if (!chunk || !Array.isArray(chunk.choices)) throw fail('API 流响应格式无效。');
       if (!chunk.choices.length) {
         if (!chunk.usage) throw fail('API 流缺少消息数据。');
@@ -248,6 +275,7 @@
     const body = { model: config.model, messages, stream: !!config.stream };
     if (config.mode === 'tools') { body.tools = tools || []; body.tool_choice = 'auto'; }
     let responseReceived = false;
+    const images = hasImages(messages);
     try {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal,
         credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', ...(local ? { targetAddressSpace: 'loopback' } : {}) });
@@ -255,8 +283,12 @@
       if (local && !response.ok && response.headers.get('X-FlowSketch-Relay-Error')) {
         throw fail('本地转发未完成请求（HTTP ' + response.status + '）。请检查脚本、网页来源、连接口令及上游网络；API URL 仍需填写供应商的真实地址。');
       }
-      if (!response.ok) throw httpError(response.status);
-      return await (config.stream ? readSSE(response, onDelta) : readJSON(response));
+      if (!response.ok) {
+        const status = response.status;
+        if (images && (status === 500 || (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))) && imageRejected(await readErrorText(response))) throw imageError();
+        throw httpError(status);
+      }
+      return await (config.stream ? readSSE(response, onDelta, images) : readJSON(response, images));
     } catch (error) {
       if ((signal && signal.aborted) || (error && error.name === 'AbortError')) throw fail('API 请求已取消或超时。');
       // Only our fixed, local messages are shown; network/server errors may contain credentials.

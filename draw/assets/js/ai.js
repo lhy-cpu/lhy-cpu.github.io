@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   if(window.FlowSketchEditor.readonly) { $('aiBtn').hidden=true;$('aiPanel').hidden=true;return; }
   const storageKey = 'flowsketch-ai-settings-v1';
-  const defaults = {apiUrl:'',key:'',model:'',vision:false,stream:true,mode:'json',timeoutSeconds:180,historyTurns:24,connection:'direct',relayUrl:'http://127.0.0.1:18765',relayToken:''};
+  const defaults = {apiUrl:'',key:'',model:'',vision:true,stream:true,mode:'tools',timeoutSeconds:600,historyTurns:24,connection:'direct',relayUrl:'http://127.0.0.1:18765',relayToken:''};
   const validTimeout = value => Number.isInteger(value)&&value>=10&&value<=3600;
   const validHistory = value => Number.isInteger(value)&&value>=1&&value<=100;
   let config = {...defaults}, turns = [], attachments = [], controller = null, busy = false;
@@ -79,8 +79,8 @@
     const saved = JSON.parse(localStorage.getItem(storageKey));
     if(saved) config = {
       apiUrl:typeof saved.apiUrl==='string'?saved.apiUrl:'', key:typeof saved.key==='string'?saved.key:'',
-      model:typeof saved.model==='string'?saved.model:'', vision:saved.vision===true,
-      stream:saved.stream!==false,mode:saved.mode==='tools'?'tools':'json',
+      model:typeof saved.model==='string'?saved.model:'', vision:typeof saved.vision==='boolean'?saved.vision:defaults.vision,
+      stream:saved.stream!==false,mode:['json','tools'].includes(saved.mode)?saved.mode:defaults.mode,
       timeoutSeconds:validTimeout(saved.timeoutSeconds)?saved.timeoutSeconds:defaults.timeoutSeconds,
       historyTurns:validHistory(saved.historyTurns)?saved.historyTurns:defaults.historyTurns,
       connection:saved.connection==='local'?'local':'direct',
@@ -96,7 +96,7 @@
     syncConfig();
   }
   function syncConfig() {
-    $('aiRelaySettings').hidden=config.connection!=='local';
+    $('aiRelaySettings').hidden=config.connection!=='local';$('aiRelayTest').hidden=config.connection!=='local';
     $('aiModelBadge').textContent=config.model ? `${config.model} · ${config.vision?'文字 + 图片':'文字'}`:'配置后开始创作';
     $('aiAttach').disabled=busy||!config.vision;
     $('aiAttach').title=config.vision?'添加参考图片（最多 4 张）':'请先启用模型支持图片输入';
@@ -129,6 +129,7 @@
     if(['aiConnection','aiRelayUrl','aiRelayToken'].includes(id)){
       relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=busy;$('aiRelayStatus').textContent='';
     }
+    if(['aiUrl','aiKey','aiModel','aiConnection','aiRelayUrl','aiRelayToken'].includes(id))cancelVisionCheck(true);
     try{readSettings();}catch(e){$('aiSettingsStatus').textContent=e.message;}
   }));
   $('aiRelayGuide').onclick=()=>{if(!busy)window.FlowSketchEditor.openRelayHelp?.();};
@@ -145,6 +146,63 @@
     }catch(e){if(relayCheck===check)$('aiRelayStatus').textContent=e.message;}
     finally{clearTimeout(timer);if(relayCheck===check){relayCheck=null;$('aiRelayTest').disabled=busy;}}
   };
+  let visionCheck=null;
+  const PROBE_CHARS='ACDEFHJKMNPRTUVWXY34679';
+  const PROBE_COLORS=[['#c62828','#fff'],['#1d4ed8','#fff'],['#15803d','#fff'],['#7e22ce','#fff'],['#c2410c','#fff'],['#111827','#fff'],['#facc15','#111'],['#a5f3fc','#111'],['#f9a8d4','#111']];
+  // Random code on a random high-contrast background: only a model that actually sees the image can repeat it.
+  function probeImage() {
+    const pick=list=>list[Math.floor(Math.random()*list.length)];
+    const code=Array.from({length:5},()=>pick(PROBE_CHARS)).join(''),[background,ink]=pick(PROBE_COLORS);
+    const canvas=document.createElement('canvas');canvas.width=320;canvas.height=120;
+    const ctx=canvas.getContext('2d');ctx.fillStyle=background;ctx.fillRect(0,0,320,120);
+    ctx.fillStyle=ink;ctx.font='bold 64px Arial, Helvetica, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    [...code].forEach((char,index)=>ctx.fillText(char,40+index*60,62));
+    return {code,url:canvas.toDataURL('image/png')};
+  }
+  function probeAnswer(content) {return String(content||'').replace(/<think>[\s\S]*?<\/think>/gi,'').trim();}
+  function probeScore(content,code) {
+    const text=probeAnswer(content).toUpperCase();
+    if(/NO_?IMAGE/.test(text))return 0;
+    const clean=text.replace(/[^A-Z0-9]/g,'');
+    if(clean.includes(code))return 5;
+    let best=0;
+    for(let i=0;i+5<=clean.length;i++){let hits=0;for(let j=0;j<5;j++)if(clean[i+j]===code[j])hits++;best=Math.max(best,hits);}
+    return best;
+  }
+  function setVision(value) {$('aiVision').checked=value;try{readSettings();}catch{config.vision=value;syncConfig();}}
+  function disableVision() {
+    setVision(false);
+    for(const turn of turns)for(const item of turn)if(Array.isArray(item.content)&&item.content.some(part=>part.type==='image_url'))
+      item.content=[...item.content.filter(part=>part.type==='text').map(part=>part.text),'（原有图片已省略：当前模型不支持图片输入。）'].join('\n');
+  }
+  function cancelVisionCheck(clear) {
+    visionCheck?.abort();visionCheck=null;$('aiVisionTest').disabled=busy;
+    if(clear){$('aiVisionTestResult').hidden=true;$('aiVisionStatus').textContent='';}
+  }
+  $('aiVisionTest').onclick=async()=>{
+    if(busy||visionCheck)return;
+    const status=$('aiVisionStatus');
+    try{readSettings();validateConfig();}catch(e){$('aiVisionTestResult').hidden=false;$('aiVisionTestImage').hidden=true;status.textContent=e.message;return;}
+    const check=new AbortController(),probe=probeImage();visionCheck=check;
+    const timer=setTimeout(()=>check.abort(),Math.min(config.timeoutSeconds,120)*1000);
+    $('aiVisionTest').disabled=true;$('aiVisionTestResult').hidden=false;$('aiVisionTestImage').hidden=false;$('aiVisionTestImage').src=probe.url;
+    status.textContent='正在发送测试图片，会调用一次模型…';
+    try{
+      const reply=await window.FlowSketchAIClient.complete({config:{...config,mode:'json'},signal:check.signal,messages:[{role:'user',content:[
+        {type:'text',text:'这是一张能力测试图片，图中有一行 5 个大写字母或数字。请只输出这 5 个字符，不要输出任何其他内容；如果看不到图片，只回答 NO_IMAGE。'},
+        {type:'image_url',image_url:{url:probe.url}}]}]});
+      if(visionCheck!==check)return;
+      const score=probeScore(reply.content,probe.code),answer=probeAnswer(reply.content).slice(0,60)||'（空）',changed=config.vision!==(score>=3);
+      setVision(score>=3);
+      status.textContent=score===5?`✓ 支持图片：模型正确读出「${probe.code}」。${changed?'已自动勾选「模型支持图片输入」。':''}`
+        :score>=3?`✓ 模型能看到图片，但识别有偏差：读出「${answer}」，实际为「${probe.code}」。${changed?'已自动勾选「模型支持图片输入」。':''}`
+        :`✗ 模型没有读出图片中的字符：回复「${answer}」，实际为「${probe.code}」。可能不支持图片，或图片被接口、网关丢弃。${changed?'已自动取消勾选「模型支持图片输入」。':''}`;
+    }catch(e){
+      if(visionCheck!==check)return;
+      if(e.code==='IMAGE_UNSUPPORTED'){const changed=config.vision;setVision(false);status.textContent='✗ 接口明确拒绝了图片输入，所选模型不支持图片。'+(changed?'已自动取消勾选「模型支持图片输入」。':'');}
+      else status.textContent=(check.signal.aborted?'测试超时，未得到模型回复。':'测试未完成：'+e.message)+' 图片输入勾选保持不变。';
+    }finally{clearTimeout(timer);if(visionCheck===check){visionCheck=null;$('aiVisionTest').disabled=busy;}}
+  };
   function openRelaySetup(){
     if(busy)return;
     $('aiConnection').value='local';readSettings();$('aiSettings').open=true;
@@ -157,7 +215,7 @@
   };
   $('aiSave').onclick=()=>{try{readSettings();validateConfig();$('aiSettings').open=false;}catch(e){$('aiSettingsStatus').textContent=e.message;}};
   $('aiForget').onclick=()=>{
-    relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=false;$('aiRelayStatus').textContent='';
+    relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=false;$('aiRelayStatus').textContent='';cancelVisionCheck(true);
     config={...defaults};fillSettings();$('aiKey').type='password';$('aiShowKey').textContent='显示';
     turns=[];attachments=[];targetIds=[];renderTargets();resetAssets();imageGeneration++;renderAttachments();
     try{localStorage.removeItem(storageKey);$('aiConfigState').textContent='仅存本机';$('aiSettingsStatus').textContent='本浏览器中的 API 配置已清除。';}
@@ -178,11 +236,11 @@
     if(event.key==='Escape'&&!busy)togglePanel(false);
   });
   function setBusy(value) {
-    if(value){relayCheck?.abort();relayCheck=null;}
+    if(value){relayCheck?.abort();relayCheck=null;if(visionCheck){cancelVisionCheck();$('aiVisionStatus').textContent='已开始发送消息，图片测试已取消。';}}
     busy=value;$('aiSend').hidden=value;$('aiStop').hidden=!value;
     $('aiPrompt').disabled=value;$('aiClear').disabled=value;
     [...settingsFields,'aiSave','aiForget','aiRelayGuide'].forEach(id=>$(id).disabled=value);
-    $('aiRelayTest').disabled=value||!!relayCheck;
+    $('aiRelayTest').disabled=value||!!relayCheck;$('aiVisionTest').disabled=value||!!visionCheck;
     syncConfig();
     syncSelection();renderTargets();$('aiActivity').hidden=!value;
     if(!value)$('aiPrompt').focus();
@@ -462,6 +520,25 @@
     }catch(e){
       if(pending){pending.node.classList.remove('pending');if(pending.body.textContent==='正在思考…')pending.body.textContent='回复中断。';}
       if(!applied){const index=turns.lastIndexOf(turn);if(index>=0)turns.splice(index,1);pruneAssets();}
+      if(!signal.aborted&&e.code==='IMAGE_UNSUPPORTED'&&requestConfig.vision){
+        disableVision();
+        const resumable=applied||text||targets.length;
+        const hint=notice(`所选模型「${requestConfig.model}」不支持图片输入，已自动取消「模型支持图片输入」勾选，之后不再发送画布截图和参考图片。`+(applied?'已完成的修改仍保留，可撤销。':'')+(!resumable?'本条消息只有图片，请改用文字描述后重新发送。':images.length?'继续生成时不包含本条消息的参考图片。':''),true);
+        if(resumable){
+          const resume=document.createElement('button');resume.type='button';resume.className='btn';resume.textContent='不带图片继续生成';
+          resume.onclick=()=>{
+            if(busy)return;
+            const sameFile=window.FlowSketchEditor.snapshot().fileId===requestFileId;
+            if(applied&&!sameFile){notice('已切换文件，无法继续上一条请求，请重新描述需求。');return;}
+            resume.disabled=true;const draft=$('aiPrompt').value;
+            $('aiPrompt').value=applied?'请继续完成上一条请求：已应用的修改保留在当前画布上，请根据最新画布数据检查并补全剩余部分。':text;
+            targetIds=sameFile?currentTargets(targets):[];renderTargets();attachments=[];pruneAssets();renderAttachments();
+            return send({preventDefault(){}}).finally(()=>{if(draft&&!$('aiPrompt').value)$('aiPrompt').value=draft;});
+          };
+          hint.node.append(resume);
+        }
+        $('aiStatus').textContent='模型不支持图片 · 已关闭图片输入';scrollChat();return;
+      }
       const interrupted=/连接失败|流意外中断|缺少结束标记|Failed to fetch|network/i.test(e.message||'');
       const detail=timedOut?`请求超过 ${requestConfig.timeoutSeconds} 秒，已停止。`:signal.aborted?(stopReason==='document'?'已切换文件，停止当前生成。':'已停止生成。'):e instanceof SyntaxError?'AI 返回的编辑 JSON 无法解析，未应用本批修改。':interrupted?`${e.message} 页面总时限为 ${requestConfig.timeoutSeconds} 秒；也可检查上游或 Nginx 的 proxy_read_timeout，当前信息无法确定中断原因。`:e.message;
       const failure=notice(detail+(applied?' 已完成的修改仍保留，可撤销。':''),!signal.aborted);
