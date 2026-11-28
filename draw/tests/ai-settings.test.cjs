@@ -61,7 +61,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
       FlowSketchAIStream: require('../assets/js/ai-stream.js'),
       FlowSketchAIPrompts: { tool: () => ({}), tools: vision => [{function:{name:'edit_canvas'}},...(vision?[{function:{name:'view_canvas'}},{function:{name:'view_reference'}}]:[])], instructions: (...args) => {instructions.push(args);return 'instructions';} },
       FlowSketchAIPreview: {bind:(img,opts)=>{img.previewOptions=opts;},crop:(img,region)=>options.crop?options.crop(img,region):({url:'data:image/png;base64,crop',width:20,height:10,sourceWidth:img.naturalWidth,sourceHeight:img.naturalHeight,region:region||{x:0,y:0,w:img.naturalWidth,h:img.naturalHeight}})},
-      FlowSketchAIClient: { endpoint() {}, relayEndpoint() {}, checkRelay: (...args) => options.checkRelay?.(...args)??Promise.resolve(true), complete: options => { calls.push(options); return complete(options); } },
+      FlowSketchAIClient: { endpoint() {}, relayEndpoint() {}, checkRelay: (...args) => options.checkRelay?.(...args)??Promise.resolve(true), checkDirect: (...args) => options.checkDirect ? options.checkDirect(...args) : Promise.resolve({ ok: true, status: 200 }), complete: options => { calls.push(options); return complete(options); } },
     },
   };
   vm.runInNewContext(source, context, { filename: 'assets/js/ai.js' });
@@ -804,4 +804,47 @@ test('plain chat replies show a writing phase and never request previews', async
   await h.send('你好');
   assert.equal(status, '正在撰写回复，准备绘制…');
   assert.equal(h.previews.length, 0);
+});
+
+const codedError = (message, code) => Object.assign(Error(message), { code });
+
+test('direct connection test is shown only for direct mode and explains each outcome', async () => {
+  const direct = harness(configured);
+  assert.equal(direct.get('aiDirectTest').hidden, false);
+  assert.equal(direct.get('aiRelayTest').hidden, true);
+  await direct.get('aiDirectTest').onclick();
+  assert.match(direct.get('aiDirectStatus').textContent, /连接成功.*跨域（CORS）已允许/);
+  assert.equal(direct.get('aiUseRelay').hidden, true);
+  assert.equal(direct.calls.length, 0);
+  for (const [status, text] of [[401, /拒绝了 API Key/], [404, /API 地址和模型名/], [429, /限流/], [503, /服务暂时异常/], [400, /HTTP 400/]]) {
+    const h = harness(configured, undefined, undefined, undefined, { checkDirect: async () => ({ ok: false, status }) });
+    await h.get('aiDirectTest').onclick();
+    assert.match(h.get('aiDirectStatus').textContent, text);
+    assert.equal(h.get('aiUseRelay').hidden, true);
+  }
+  const local = harness({ ...configured, connection: 'local' });
+  assert.equal(local.get('aiDirectTest').hidden, true);
+  assert.equal(local.get('aiRelayTest').hidden, false);
+});
+
+test('a CORS block tells the user to switch to the local relay, without asking the provider to allow the origin', async () => {
+  let guides = 0;
+  const h = harness(configured, undefined, undefined, undefined, { openRelayHelp: () => guides++, checkDirect: async () => { throw codedError('接口服务器可以访问，但它不允许浏览器跨域直连（CORS），请求被浏览器拦截。', 'CORS_BLOCKED'); } });
+  await h.get('aiDirectTest').onclick();
+  const text = h.get('aiDirectStatus').textContent;
+  assert.match(text, /不允许浏览器跨域直连.*请改用「本地转发」/);
+  for (const phrase of ['联系', '供应商', '服务商', '允许该来源', 'OPTIONS']) assert.equal(text.includes(phrase), false, phrase);
+  assert.equal(h.get('aiUseRelay').hidden, false);
+  h.get('aiUseRelay').onclick();
+  assert.equal(h.get('aiConnection').value, 'local');
+  assert.equal(h.get('aiDirectResult').hidden, true);
+  assert.equal(guides, 1);
+  for (const code of ['UNREACHABLE', 'MIXED_CONTENT']) {
+    const other = harness(configured, undefined, undefined, undefined, { checkDirect: async () => { throw codedError('x', code); } });
+    await other.get('aiDirectTest').onclick();
+    assert.equal(other.get('aiUseRelay').hidden, false, code);
+  }
+  const missing = harness({ apiUrl: 'https://example.test/v1' });
+  await missing.get('aiDirectTest').onclick();
+  assert.match(missing.get('aiDirectStatus').textContent, /模型名/);
 });

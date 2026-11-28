@@ -96,7 +96,7 @@
     syncConfig();
   }
   function syncConfig() {
-    $('aiRelaySettings').hidden=config.connection!=='local';$('aiRelayTest').hidden=config.connection!=='local';
+    $('aiRelaySettings').hidden=config.connection!=='local';$('aiRelayTest').hidden=config.connection!=='local';$('aiDirectTest').hidden=config.connection==='local';if(config.connection==='local')$('aiDirectResult').hidden=true;
     $('aiModelBadge').textContent=config.model ? `${config.model} · ${config.vision?'文字 + 图片':'文字'}`:'配置后开始创作';
     $('aiAttach').disabled=busy||!config.vision;
     $('aiAttach').title=config.vision?'添加参考图片（最多 4 张）':'请先启用模型支持图片输入';
@@ -129,7 +129,7 @@
     if(['aiConnection','aiRelayUrl','aiRelayToken'].includes(id)){
       relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=busy;$('aiRelayStatus').textContent='';
     }
-    if(['aiUrl','aiKey','aiModel','aiConnection','aiRelayUrl','aiRelayToken'].includes(id))cancelVisionCheck(true);
+    if(['aiUrl','aiKey','aiModel','aiConnection','aiRelayUrl','aiRelayToken'].includes(id)){cancelVisionCheck(true);cancelDirectCheck(true);}
     try{readSettings();}catch(e){$('aiSettingsStatus').textContent=e.message;}
   }));
   $('aiRelayGuide').onclick=()=>{if(!busy)window.FlowSketchEditor.openRelayHelp?.();};
@@ -203,6 +203,40 @@
       else status.textContent=(check.signal.aborted?'测试超时，未得到模型回复。':'测试未完成：'+e.message)+' 图片输入勾选保持不变。';
     }finally{clearTimeout(timer);if(visionCheck===check){visionCheck=null;$('aiVisionTest').disabled=busy;}}
   };
+  let directCheck=null;
+  function cancelDirectCheck(clear) {
+    directCheck?.abort();directCheck=null;$('aiDirectTest').disabled=busy;
+    if(clear){$('aiDirectResult').hidden=true;$('aiDirectStatus').textContent='';$('aiUseRelay').hidden=true;}
+  }
+  function directResult(text,{error=false,relay=false}={}) {
+    $('aiDirectResult').hidden=false;$('aiDirectStatus').textContent=text;
+    $('aiDirectStatus').classList.toggle('error',error);$('aiUseRelay').hidden=!relay;
+  }
+  $('aiDirectTest').onclick=async()=>{
+    if(busy||directCheck)return;
+    try{readSettings();validateConfig();}catch(e){directResult(e.message,{error:true});return;}
+    const check=new AbortController();directCheck=check;
+    const timer=setTimeout(()=>check.abort(),20000);
+    $('aiDirectTest').disabled=true;directResult('正在测试连接，会发送一次极短的请求…');
+    try{
+      const {ok,status}=await window.FlowSketchAIClient.checkDirect({...config},check.signal);
+      if(directCheck!==check)return;
+      const allowed='跨域（CORS）已允许当前网页';
+      if(ok)directResult(`✓ 连接成功：接口可以访问，${allowed}，可以直接使用。`);
+      else if(status===401||status===403)directResult(`${allowed}，但接口拒绝了 API Key（HTTP ${status}），请检查 Key 及访问权限。`,{error:true});
+      else if(status===404)directResult(`${allowed}，但接口返回 HTTP 404，请检查 API 地址和模型名。`,{error:true});
+      else if(status===429)directResult(`${allowed}，但请求被限流或额度不足（HTTP 429），请稍后重试并检查额度。`,{error:true});
+      else if(status>=500)directResult(`${allowed}，但服务暂时异常（HTTP ${status}），请稍后重试。`,{error:true});
+      else directResult(`${allowed}，接口可以访问，但返回 HTTP ${status}，请检查模型名和服务配置。`,{error:true});
+    }catch(e){
+      if(directCheck!==check)return;
+      if(e.code==='CORS_BLOCKED')directResult(`✗ ${e.message}请改用「本地转发」：点击下方按钮，按说明在本机启动转发服务即可。`,{error:true,relay:true});
+      else if(e.code==='MIXED_CONTENT')directResult(`✗ ${e.message}`,{error:true,relay:true});
+      else if(e.code==='UNREACHABLE')directResult(`✗ ${e.message}如果该接口需要代理才能访问，可以改用本地转发。`,{error:true,relay:true});
+      else directResult(check.signal.aborted?'测试超时：20 秒内没有收到接口响应。':e.message,{error:true});
+    }finally{clearTimeout(timer);if(directCheck===check){directCheck=null;$('aiDirectTest').disabled=busy;}}
+  };
+  $('aiUseRelay').onclick=()=>{cancelDirectCheck(true);openRelaySetup();};
   function openRelaySetup(){
     if(busy)return;
     $('aiConnection').value='local';readSettings();$('aiSettings').open=true;
@@ -215,7 +249,7 @@
   };
   $('aiSave').onclick=()=>{try{readSettings();validateConfig();$('aiSettings').open=false;}catch(e){$('aiSettingsStatus').textContent=e.message;}};
   $('aiForget').onclick=()=>{
-    relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=false;$('aiRelayStatus').textContent='';cancelVisionCheck(true);
+    relayCheck?.abort();relayCheck=null;$('aiRelayTest').disabled=false;$('aiRelayStatus').textContent='';cancelVisionCheck(true);cancelDirectCheck(true);
     config={...defaults};fillSettings();$('aiKey').type='password';$('aiShowKey').textContent='显示';
     turns=[];attachments=[];targetIds=[];renderTargets();resetAssets();imageGeneration++;renderAttachments();
     try{localStorage.removeItem(storageKey);$('aiConfigState').textContent='仅存本机';$('aiSettingsStatus').textContent='本浏览器中的 API 配置已清除。';}
@@ -236,11 +270,11 @@
     if(event.key==='Escape'&&!busy)togglePanel(false);
   });
   function setBusy(value) {
-    if(value){relayCheck?.abort();relayCheck=null;if(visionCheck){cancelVisionCheck();$('aiVisionStatus').textContent='已开始发送消息，图片测试已取消。';}}
+    if(value){relayCheck?.abort();relayCheck=null;if(directCheck){cancelDirectCheck();directResult('已开始发送消息，连接测试已取消。');}if(visionCheck){cancelVisionCheck();$('aiVisionStatus').textContent='已开始发送消息，图片测试已取消。';}}
     busy=value;$('aiSend').hidden=value;$('aiStop').hidden=!value;
     $('aiPrompt').disabled=value;$('aiClear').disabled=value;
     [...settingsFields,'aiSave','aiForget','aiRelayGuide'].forEach(id=>$(id).disabled=value);
-    $('aiRelayTest').disabled=value||!!relayCheck;$('aiVisionTest').disabled=value||!!visionCheck;
+    $('aiRelayTest').disabled=value||!!relayCheck;$('aiVisionTest').disabled=value||!!visionCheck;$('aiDirectTest').disabled=value||!!directCheck;
     syncConfig();
     syncSelection();renderTargets();$('aiActivity').hidden=!value;
     if(!value)$('aiPrompt').focus();

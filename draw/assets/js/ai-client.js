@@ -74,6 +74,39 @@
     }
   }
 
+  const loopbackHost = (host) => host === 'localhost' || host === '[::1]' || /^127\./.test(host);
+  function coded(message, code) { const error = fail(message); error.code = code; return error; }
+
+  // Browsers hide why a cross-origin fetch failed. Send the same POST a real request uses (so the
+  // CORS preflight is identical), stop at the response headers, and on failure probe the server
+  // with an opaque no-cors GET: an answer means it is reachable and CORS blocked the real request.
+  async function checkDirect(config, signal) {
+    if (!config || typeof config.model !== 'string' || !config.model.trim()) throw fail('请先填写模型名。');
+    const target = endpoint(config.apiUrl), url = new URL(target);
+    if (root.location && root.location.protocol === 'https:' && url.protocol === 'http:' && !loopbackHost(url.hostname)) {
+      throw coded('当前网页使用 HTTPS，浏览器会拦截发往普通 HTTP 接口的请求（混合内容）。请改用 HTTPS 接口地址，或选择本地转发。', 'MIXED_CONTENT');
+    }
+    const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
+    if (config.key) headers.Authorization = 'Bearer ' + config.key;
+    let response;
+    try {
+      response = await fetch(target, { method: 'POST', headers, signal, credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
+        body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: '连接测试，请只回复 OK。' }], stream: true }) });
+    } catch (_) {
+      if (signal && signal.aborted) throw fail('连接测试超时或已取消。');
+      const probe = new AbortController(), timer = setTimeout(() => probe.abort(), 8000);
+      let reachable = false;
+      try { await fetch(target, { method: 'GET', mode: 'no-cors', signal: probe.signal, credentials: 'omit', referrerPolicy: 'no-referrer' }); reachable = true; } catch (_) { /* unreachable */ }
+      finally { clearTimeout(timer); }
+      if (signal && signal.aborted) throw fail('连接测试超时或已取消。');
+      throw reachable ? coded('接口服务器可以访问，但它不允许浏览器跨域直连（CORS），请求被浏览器拦截。', 'CORS_BLOCKED')
+        : coded('无法连接到接口服务器。请检查 API 地址、网络、HTTPS 证书和代理设置。', 'UNREACHABLE');
+    }
+    // Headers are enough; cancelling the body stops the short test generation.
+    try { if (response.body && typeof response.body.cancel === 'function') Promise.resolve(response.body.cancel()).catch(() => {}); } catch (_) { /* already closed */ }
+    return { ok: response.ok, status: response.status };
+  }
+
   function finish(reason) {
     if (reason === 'length') throw fail('模型输出被长度限制截断，未执行任何操作。请提高输出限额或缩短请求。');
     if (reason === 'content_filter') throw fail('模型输出被内容过滤中断，未执行任何操作。');
@@ -304,7 +337,7 @@
           error.code = 'LOCAL_RELAY_UNAVAILABLE';
           throw error;
         }
-        const connectionError = fail('浏览器无法连接 API；可能是 API 供应商或其网关未允许跨域（CORS）。请联系供应商，允许当前网页来源、Content-Type / Authorization 请求头及 OPTIONS 预检；同时检查网络、API 地址和 HTTPS 配置。');
+        const connectionError = fail('浏览器无法直连 API，最常见的原因是接口不允许浏览器跨域访问（CORS）。请点击下方「使用本地转发」，按说明启动本机转发服务后重新发送；如果仍然失败，再检查网络、API 地址和 HTTPS 配置。');
         connectionError.code = 'NETWORK_OR_CORS';
         throw connectionError;
       }
@@ -312,5 +345,5 @@
     }
   }
 
-  root.FlowSketchAIClient = Object.freeze({ endpoint, relayEndpoint, checkRelay, complete });
+  root.FlowSketchAIClient = Object.freeze({ endpoint, relayEndpoint, checkRelay, checkDirect, complete });
 })(typeof window !== 'undefined' ? window : globalThis);

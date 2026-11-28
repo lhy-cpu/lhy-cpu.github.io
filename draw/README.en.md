@@ -116,7 +116,7 @@ Click **“文件” (Files)** in the upper-right corner to open the file list. 
 - Files are sorted by modification time, newest first.
 - Import JSON through the file picker or by dropping it onto the page. A ZIP previously exported by FlowSketch can also be dropped back onto the page to restore its projects.
 - Dropped images are added to the active project as image elements.
-- The file list supports multi-select deletion and export. Deletion always requires confirmation.
+- Each file in the list has its own Copy, Export and Delete buttons; multi-select deletion and export are also available. Copy creates an independent duplicate numbered Windows-style, such as “Flowchart (2)” and “Flowchart (3)”. Deletion always requires confirmation.
 - One selected file exports as JSON. Multiple selected files export as a ZIP containing one independent JSON file per project.
 - By default, FlowSketch prompts for cleanup when total storage reaches 10 MB or the library reaches 100 files. Both limits are configurable in the file list.
 

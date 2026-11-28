@@ -164,11 +164,12 @@ test('HTTP and network failures never echo credentials', async () => {
   await assert.rejects(request(client(async () => { throw new Error('API secret-key connection error'); })), (error) => !error.message.includes('secret-key'));
 });
 
-test('initial fetch failure promptly explains possible CORS and supplier configuration safely', async () => {
+test('initial fetch failure promptly explains likely CORS and points to the local relay safely', async () => {
   const api = client(async () => { throw new TypeError('Failed to fetch secret-key https://private.example/?token=private'); });
   await assert.rejects(promptly(request(api)), (error) => {
     assert.equal(error.code, 'NETWORK_OR_CORS');
-    for (const text of ['可能', 'CORS', '供应商', '当前网页来源', 'Content-Type', 'Authorization', 'OPTIONS', '网络', 'HTTPS']) assert.ok(error.message.includes(text));
+    for (const text of ['最常见', 'CORS', '使用本地转发', '网络', 'HTTPS']) assert.ok(error.message.includes(text));
+    for (const text of ['供应商', '当前网页来源', 'OPTIONS']) assert.equal(error.message.includes(text), false);
     assert.equal(error.message.includes('secret-key'), false);
     assert.equal(error.message.includes('private'), false);
     assert.equal(error.message.includes('Failed to fetch'), false);
@@ -312,4 +313,47 @@ test('streaming progress reports reasoning and partial tool arguments without ad
   assert.equal(reply.content, null);
   assert.equal(JSON.stringify(reply).includes('规划'), false);
   assert.equal(reply.tool_calls[0].function.arguments, '{"operations":[{"op":"clear"}]}');
+});
+
+function directClient(fetch, location) {
+  const context = { window: { location }, fetch, URL, TextEncoder, TextDecoder, Error, AbortController, setTimeout, clearTimeout };
+  vm.runInNewContext(source, context);
+  return context.window.FlowSketchAIClient;
+}
+
+test('direct connection check sends the real POST shape, stops at headers and reports the status', async () => {
+  const calls = []; let cancelled = false;
+  const api = directClient(async (url, options) => { calls.push([url, options]); return { ok: false, status: 401, body: { cancel: async () => { cancelled = true; } } }; }, { protocol: 'https:', origin: 'https://draw.example' });
+  assert.deepEqual(plain(await api.checkDirect({ ...config }, undefined)), { ok: false, status: 401 });
+  const [url, options] = calls[0];
+  assert.equal(url, 'https://api.example/v1/chat/completions');
+  assert.equal(options.method, 'POST');
+  assert.equal(options.headers.Authorization, 'Bearer secret-key');
+  assert.equal(options.headers['Content-Type'], 'application/json');
+  assert.equal(options.credentials, 'omit');
+  assert.equal(JSON.parse(options.body).model, 'model');
+  assert.equal(JSON.parse(options.body).stream, true);
+  assert.equal(calls.length, 1);
+  assert.equal(cancelled, true);
+});
+
+test('blocked direct requests are told apart with an opaque no-cors probe', async () => {
+  let probe;
+  const cors = directClient(async (url, options) => { if (options.mode !== 'no-cors') throw new TypeError('Failed to fetch secret-key'); probe = options; return { type: 'opaque' }; }, { protocol: 'https:' });
+  await assert.rejects(cors.checkDirect({ ...config }), error => error.code === 'CORS_BLOCKED' && /不允许浏览器跨域直连/.test(error.message) && !error.message.includes('secret'));
+  assert.equal(probe.method, 'GET');
+  assert.equal(probe.headers, undefined);
+  assert.equal(probe.credentials, 'omit');
+  const down = directClient(async () => { throw new TypeError('Failed to fetch'); }, { protocol: 'https:' });
+  await assert.rejects(down.checkDirect({ ...config }), error => error.code === 'UNREACHABLE');
+});
+
+test('HTTPS pages flag plain HTTP endpoints as mixed content without sending, except loopback', async () => {
+  let count = 0;
+  const api = directClient(async () => { count++; return { ok: true, status: 200, body: null }; }, { protocol: 'https:' });
+  await assert.rejects(api.checkDirect({ ...config, apiUrl: 'http://api.example/v1' }), error => error.code === 'MIXED_CONTENT');
+  assert.equal(count, 0);
+  assert.deepEqual(plain(await api.checkDirect({ ...config, apiUrl: 'http://127.0.0.1:11434/v1' })), { ok: true, status: 200 });
+  await assert.rejects(api.checkDirect({ ...config, model: ' ' }), /模型名/);
+  assert.equal(count, 1);
 });
