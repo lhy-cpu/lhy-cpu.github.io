@@ -294,6 +294,13 @@
     const body=document.createElement('div');body.className='ai-message-body';body.textContent=text;node.append(body);
     $('aiMessages').append(node);scrollChat();return {node,body};
   }
+  // Assistant replies render Markdown and LaTeX; plain text keeps the cheap textContent path.
+  function setReply(body,value) {
+    const text=String(value??''),renderer=window.FlowSketchAIMarkdown;
+    body.textContent=text;
+    const rich=!!renderer&&renderer.hasMarkup(text);body.classList.toggle('ai-md',rich);
+    if(rich)body.replaceChildren(...renderer.render(text,document,window.katex));
+  }
   function notice(text,error=false){const result=message('notice',text);result.node.classList.toggle('error',error);return result;}
   document.querySelectorAll('[data-ai-prompt]').forEach(button=>button.onclick=()=>{
     $('aiPrompt').value=button.dataset.aiPrompt;$('aiPrompt').focus();
@@ -422,7 +429,7 @@
       let jsonParser=null,thinking=null,thinkingText='',content='',hasText=false,previewTimer=null,previewed=0;
       const prefix=()=>applied?`已应用 ${applied} 批修改 · `:'';
       const drafting=()=>operations.length?`正在绘制 · 已生成 ${operations.length} 项修改`:'正在准备画布修改…';
-      function renderBody(){if(content||operations.length)target.body.textContent=displayText(content,drafting())||drafting();}
+      function renderBody(){if(content||operations.length)setReply(target.body,displayText(content,drafting())||drafting());}
       function showThinking(text){
         if(!text)return;thinkingText=text;
         if(!thinking){
@@ -549,7 +556,7 @@
           tools:window.FlowSketchAIPrompts.tools(requestConfig.vision),signal,onDelta:(_delta,full)=>live.content(full),onProgress:event=>event.type==='reasoning'?live.reasoning(event.text):event.type==='tool'&&live.tool(event)});
         if(signal.aborted)throw new DOMException('Aborted','AbortError');
         live.finish(reply);
-        pending.node.classList.remove('pending');pending.body.textContent=displayText(reply.content)||'正在准备画布修改…';
+        pending.node.classList.remove('pending');setReply(pending.body,displayText(reply.content)||'正在准备画布修改…');
         if(reply.tool_calls?.length) {
           if(requestConfig.mode!=='tools')throw Error('接口返回了未启用的工具调用，请切换修改方式。');
           const calls=reply.tool_calls.map(call=>{
@@ -587,7 +594,7 @@
           for(const assetId of new Set(referenceViews.filter(shot=>shot.ok).map(shot=>shot.assetId)))discardReferenceImages(assetId,assetMap[assetId].src);
           for(const shot of referenceViews)if(shot.ok)attachReferenceImage(shot,false);else notice(shot.error,true);
           view=canvasViews.find(shot=>shot.ok)||view;
-          if(!reply.content)pending.body.textContent=editing?(result.error?'修改未应用，正在修正指令…':'画布已更新。'):view?.empty?'目前画布空白。':view?.ok?'画布截图已返回。':'画布截图未返回。';
+          if(!reply.content)setReply(pending.body,editing?(result.error?'修改未应用，正在修正指令…':'画布已更新。'):view?.empty?'目前画布空白。':view?.ok?'画布截图已返回。':'画布截图未返回。');
           updateStatus(result.error?`本批修改未应用${applied?` · 已应用 ${applied} 批`:''} · 正在修正…`:edited?`已应用 ${applied} 批修改 · ${view?.ok?'AI 正在检查修改效果…':'正在整理回复…'}`:'AI 正在整理回复…');pending=null;continue;
         }
         const ops=requestConfig.mode==='json'?parseEdits(reply.content):null;
@@ -595,7 +602,7 @@
           updateStatus(applied?'正在优化画布…':'正在绘制…');
           window.FlowSketchEditor.apply(ops,expected,{assetMap});expected=window.FlowSketchEditor.fingerprint();applied++;
           discardCanvasImages();
-          pending.body.textContent=String(reply.content).replace(/```flowsketch\s*[\s\S]*?```/g,'').trim()||'画布已更新。';
+          setReply(pending.body,String(reply.content).replace(/```flowsketch\s*[\s\S]*?```/g,'').trim()||'画布已更新。');
           notice(`✓ 已应用 ${ops.length} 项修改 · 可使用顶部撤销`);window.FlowSketchEditor.fit();
           if(requestConfig.vision){
             turn.push(reply);

@@ -41,7 +41,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
     getElementById: get, createElement: tag => tag === 'canvas' ? {
       getContext: () => ({ fillRect() {}, drawImage() {}, fillText(text) { drawn.push(text); } }), toDataURL: () => 'data:image/jpeg;base64,test',
     } : element(),
-    querySelector: () => element(), querySelectorAll: () => [], addEventListener(type, handler) { documentListeners.set(type, handler); },
+    createTextNode: text => ({ textContent: text }), querySelector: () => element(), querySelectorAll: () => [], addEventListener(type, handler) { documentListeners.set(type, handler); },
   };
   const context = {
     document, AbortController, DOMException, Date: {now: () => now},
@@ -59,6 +59,7 @@ function harness(saved, complete = async () => ({ content: '完成' }), apply = 
       FlowSketchEditor: { preview: (...args) => { previews.push(args); return options.preview ? options.preview(...args) : true; }, endPreview: () => { endPreviews++; }, openRelayHelp: () => options.openRelayHelp?.(), readonly: false, assertEditable() {}, fingerprint: () => options.fingerprint?.()??'same', snapshot: () => options.snapshot?.()??({}), apply: (...args) => {applications.push(args);return apply(...args);}, capture: (...args) => {captures.push(args);return options.capture?options.capture(...args):Promise.reject(Error('capture unavailable'));}, fit() {} },
       FlowSketchAIEngine: { describe: snapshot => snapshot },
       FlowSketchAIStream: require('../assets/js/ai-stream.js'),
+      FlowSketchAIMarkdown: require('../assets/js/ai-markdown.js'),
       FlowSketchAIPrompts: { tool: () => ({}), tools: vision => [{function:{name:'edit_canvas'}},...(vision?[{function:{name:'view_canvas'}},{function:{name:'view_reference'}}]:[])], instructions: (...args) => {instructions.push(args);return 'instructions';} },
       FlowSketchAIPreview: {bind:(img,opts)=>{img.previewOptions=opts;},crop:(img,region)=>options.crop?options.crop(img,region):({url:'data:image/png;base64,crop',width:20,height:10,sourceWidth:img.naturalWidth,sourceHeight:img.naturalHeight,region:region||{x:0,y:0,w:img.naturalWidth,h:img.naturalHeight}})},
       FlowSketchAIClient: { endpoint() {}, relayEndpoint() {}, checkRelay: (...args) => options.checkRelay?.(...args)??Promise.resolve(true), checkDirect: (...args) => options.checkDirect ? options.checkDirect(...args) : Promise.resolve({ ok: true, status: 200 }), complete: options => { calls.push(options); return complete(options); } },
@@ -847,4 +848,18 @@ test('a CORS block tells the user to switch to the local relay, without asking t
   const missing = harness({ apiUrl: 'https://example.test/v1' });
   await missing.get('aiDirectTest').onclick();
   assert.match(missing.get('aiDirectStatus').textContent, /模型名/);
+});
+
+test('assistant replies render Markdown blocks while user text and plain replies stay literal', async () => {
+  const reply = '用 \\(K=0.0025\\) 对照。\n\n- **\\(K\\) 增大**：增益降低。\n- **\\(K\\) 减小**：增益升高。\n\n但 **不能直接推出**。';
+  const h = harness(configured, async () => ({ content: reply }));
+  await h.send('**用户写的星号**');
+  const [user, assistant] = h.get('aiMessages').children.slice(-2);
+  const body = node => node.children.find(child => child.className === 'ai-message-body' || child.className === 'ai-message-body ai-md');
+  assert.equal(body(user).textContent, '**用户写的星号**');
+  assert.equal(body(user).children.length, 0);
+  assert.equal(body(assistant).children.length, 3);
+  const plain = harness(configured, async () => ({ content: '完成，没有格式。' }));
+  await plain.send('画图');
+  assert.equal(body(plain.get('aiMessages').children.at(-1)).children.length, 0);
 });

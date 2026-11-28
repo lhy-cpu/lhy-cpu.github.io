@@ -6,7 +6,7 @@
   <title>FlowSketch · 流程说明图绘制引擎</title>
   <link rel="icon" type="image/svg+xml" href="assets/flowsketch-icon.svg">
   <link rel="stylesheet" href="assets/vendor/katex.min.css">
-  <link rel="stylesheet" href="assets/css/ai.css?v=20261128.3">
+  <link rel="stylesheet" href="assets/css/ai.css?v=20261128.4">
   <link rel="stylesheet" href="assets/css/ai-relay-help.css?v=20261029.3">
   <link rel="stylesheet" href="assets/css/ai-preview.css?v=20261029.3">
   <link rel="stylesheet" href="assets/css/image-editor.css?v=20261012.1">
@@ -108,7 +108,7 @@
         <div id="aiAttachments" class="ai-attachments"></div>
         <textarea id="aiPrompt" placeholder="描述你的想法，AI 会直接修改画布…" rows="3" aria-label="发送给 AI 的消息" maxlength="20000"></textarea>
         <div class="ai-composer-actions"><button type="button" class="btn icon" id="aiAttach" title="请先启用模型支持图片输入" aria-label="添加图片" disabled>＋</button><span id="aiInputHint">Enter 发送 · Shift+Enter 换行</span><button type="button" class="btn" id="aiStop" hidden>停止</button><button class="btn primary" id="aiSend" type="submit" aria-label="发送消息">发送 ↑</button></div>
-        <p class="ai-footnote">AI 的每批修改均可用顶部「撤销」恢复 · <span id="appVersion" title="前端资源版本">20261128.3</span></p>
+        <p class="ai-footnote">AI 的每批修改均可用顶部「撤销」恢复 · <span id="appVersion" title="前端资源版本">20261128.4</span></p>
       </form>
       <input id="aiImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
     </aside>
@@ -635,6 +635,7 @@
 <script src="assets/js/ai-preview.js?v=20261029.3"></script>
 <script src="assets/js/ai-relay-help.js?v=20261128.1"></script>
 <script src="assets/js/ai-stream.js?v=20261128.1"></script>
-<script src="assets/js/ai.js?v=20261128.3"></script>
+<script src="assets/js/ai-markdown.js?v=20261128.4"></script>
+<script src="assets/js/ai.js?v=20261128.4"></script>
 </body>
 </html>
